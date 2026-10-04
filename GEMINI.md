@@ -1,8 +1,8 @@
-# Nova-X Ground Control Station (GCS) // Lunar Operations
+# TURKUZAYSAN Ground Control Station (GCS) // Lunar Operations
 
 ## Project Overview
 
-Nova-X Ground Control Station is an operational-grade, mission-critical flight telemetry, trajectory tracking, and vehicle control console for aerospace lunar landing and ascent vehicles (LDAM - Lunar Descent & Ascent Module). Designed for deep-space mission operations and situational awareness, the console adheres to aerospace ergonomics and mission control visual standards (SpaceX, NASA, and OpenMCT), featuring high-density telemetry readouts, a Primary Flight Display (PFD) with integrated downward optical camera video feed (`output.mp4`), transparent artificial lunar horizon and velocity vector HUD, a Lunar Tactical Situation Display based on NASA LROC / OpenPlanetary cartography, cryogenic propulsion diagnostics, a 10-channel Caution & Warning (C&W) annunciator matrix, an integrated Edge SLM log stream, and synthetic Web Audio mission control acoustic feedback.
+TURKUZAYSAN Ground Control Station is an operational-grade, mission-critical flight telemetry, trajectory tracking, and vehicle control console for aerospace lunar landing and ascent vehicles (LDAM - Lunar Descent & Ascent Module). Designed for deep-space mission operations and situational awareness, the console adheres to aerospace ergonomics and mission control visual standards (SpaceX, NASA, and OpenMCT), featuring high-density telemetry readouts, a Primary Flight Display (PFD) with integrated downward optical camera video feed (`output.mp4`), transparent artificial lunar horizon and velocity vector HUD, a Lunar Tactical Situation Display based on NASA LROC / OpenPlanetary cartography, cryogenic propulsion diagnostics, a 10-channel Caution & Warning (C&W) annunciator matrix, an integrated Edge SLM log stream, and synthetic Web Audio mission control acoustic feedback.
 
 ### Key Technologies
 - **HTML5 & Vanilla JavaScript (ES6+)**: Self-contained client-side single-page application with decoupled state management, discrete numerical physics simulation (Lunar gravity $g = 1.622 \text{ m/s}^2$, hard vacuum dynamics), video time-synchronization, and Web Audio API integration.
@@ -90,7 +90,7 @@ google-chrome aerospace_gcs_software.html
 ## Console Features & Operations
 
 ### 1. Header & Deep Space Network (Top Bar - 46px)
-- **Vehicle Status**: Active pulse beacon, vehicle identity (`NOVA-X LUNAR LDAM-02`), and dynamic flight state badge (`SYS_STANDBY`, `SYS_ARMED`, `DEORBIT_COAST`, `POWERED_BRAKING_BURN`, `TERRAIN_NAV_APPROACH`, `TERMINAL_HAZARD_AVOID`, `FINAL_HOVER_APPROACH`, `REGOLITH_DUST_BLOWOUT`, `TOUCHDOWN_LUNAR_SURFACE`, `FTS_ACTIVATED`).
+- **Vehicle Status**: Active pulse beacon, vehicle identity (`TURKUZAYSAN LUNAR LDAM-02`), and dynamic flight state badge (`SYS_STANDBY`, `SYS_ARMED`, `DEORBIT_COAST`, `POWERED_BRAKING_BURN`, `TERRAIN_NAV_APPROACH`, `TERMINAL_HAZARD_AVOID`, `FINAL_HOVER_APPROACH`, `REGOLITH_DUST_BLOWOUT`, `TOUCHDOWN_LUNAR_SURFACE`, `FTS_ACTIVATED`).
 - **Deep Space Network (DSN) Link Matrix**: Ground station (`GOLDSTONE 70M`), Uplink frequency (`50 Hz`), Downlink bandwidth (`4.8 Mb/s`), Light travel time delay / RTT (`1.28s`), and Packet Loss rate (`0.0%`).
 - **Lunar Milestone Sequencer**: Visual breadcrumb tracker highlighting active and completed mission gates (`PRE-LNCH` → `ARMED` → `DE-ORBIT` → `PDI BRAKE` → `APPROACH` → `TERMINAL` → `DUST BLOW` → `TOUCHDOWN`).
 - **Primary Control Deck**: Safety arming (`ARM VEHICLE`), launch/descent trigger (`START DESCENT`), pause/inspect toggle (`HOLD / RESUME`), and emergency Flight Termination System button (`ABORT / FTS`).
@@ -127,7 +127,7 @@ google-chrome aerospace_gcs_software.html
 - **Synchronized Ground Track**: As the video plays, the vehicle traverses the ground track across Mare Tranquillitatis directly to the landing zone (`LZ-LUNAR-1`).
 
 ### 4. Vehicle Systems, Propulsion & 3D Rocket Model (Right Panel - 360px)
-- **Nova-1 Lunar Methalox Engine**: Main engine state (`STANDBY`, `FIRING`, `SHUTDOWN`), Chamber Pressure ($P_c$) bar, Throttle command (%), Vacuum thrust (kN), and Turbopump RPM.
+- **TURKUZAYSAN-1 Lunar Methalox Engine**: Main engine state (`STANDBY`, `FIRING`, `SHUTDOWN`), Chamber Pressure ($P_c$) bar, Throttle command (%), Vacuum thrust (kN), and Turbopump RPM.
 - **Cryogenic Tankage**: LOX and LCH4 fill percentage and mass depleting in sync with engine firing duration.
 - **TVC Gimbal & RCS**: 2D TVC plot showing active gimbal stabilization nulling lateral drift.
 - **3D Rocket Vehicle Model Viewport (`MODEL`)**:

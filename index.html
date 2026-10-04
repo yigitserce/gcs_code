@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nova-X Ground Control Station // Lunar Operations</title>
+    <title>TURKUZAYSAN Ground Control Station // Lunar Operations</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -406,13 +406,13 @@
     <!-- ================================================================ -->
     <!-- TOP STATUS BAR: MISSION CONTROL HEADER -->
     <!-- ================================================================ -->
-    <header class="bg-[#0f121a] border-b border-[#1e2638] h-[46px] shrink-0 flex items-center justify-between px-3 z-20">
+    <header class="bg-[#0f121a] border-b border-[#1e2638] h-[46px] shrink-0 flex items-center justify-between px-3 z-20 whitespace-nowrap overflow-hidden">
         
         <!-- Left: Vehicle Identity & Telemetry Status -->
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3 shrink-0">
             <div class="flex items-center gap-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-[#22c55e] block live-pulse"></span>
-                <span class="font-bold tracking-wider text-white text-sm mono">NOVA-X</span>
+                <span class="font-bold tracking-wider text-white text-sm mono">TURKUZAYSAN</span>
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-[#1e2638] text-cyan-400 mono font-semibold">LUNAR LDAM-02</span>
             </div>
 
@@ -452,7 +452,7 @@
         </div>
 
         <!-- Right: Clocks, Caution/Warning & Flight Actions -->
-        <div class="flex items-center gap-3.5">
+        <div class="flex items-center gap-2.5 shrink-0">
             
             <!-- Master Caution / Warning indicators -->
             <div class="flex items-center gap-1.5 mono text-[10px]">
@@ -754,7 +754,7 @@
             <section class="gcs-panel h-full">
                 <div class="gcs-panel-header">
                     <span>PROPULSION & ACTUATION</span>
-                    <span class="mono text-[10px] text-[#38bdf8]">NOVA-1 LUNAR METHALOX</span>
+                    <span class="mono text-[10px] text-[#38bdf8]">TURKUZAYSAN-1 LUNAR METHALOX</span>
                 </div>
 
                 <div class="p-3 flex flex-col gap-2.5 flex-1 overflow-y-auto">
@@ -3018,7 +3018,7 @@
         }
 
         // --- System Bootstrapping ---
-        logMsg("NOVA-X LUNAR DESCENT MODULE (LDAM) OPERATIONAL CONSOLE INITIALIZED.", "slm");
+        logMsg("TURKUZAYSAN LUNAR DESCENT MODULE (LDAM) OPERATIONAL CONSOLE INITIALIZED.", "slm");
         logMsg("3D WebGL Moon simulation online (Three.js r128).", "slm");
         logMsg("Optical EO-01 video telemetry stream locked on output.mp4.", "comms");
         logMsg("Deep Space Network (DSN) link established via Goldstone 70m dish.", "comms");
