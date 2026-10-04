@@ -1,0 +1,3035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nova-X Ground Control Station // Lunar Operations</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet GIS Mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Three.js 3D WebGL Engine, OrbitControls, and 3D Model Loaders -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/3MFLoader.js"></script>
+    <!-- Model Data Asset (Zero-CORS auto-loader) -->
+    <script src="model.js"></script>
+    <!-- NASA SVS 4720 Moon Data Asset (Zero-CORS LROC color & LOLA DEM) -->
+    <script src="nasa_moon_data.js"></script>
+
+    <style>
+        :root {
+            /* Aerospace Operational Dark Theme */
+            --bg-canvas: #07080b;
+            --bg-panel: #0d1017;
+            --bg-subpanel: #131722;
+            --bg-header: #171c28;
+            --bg-input: #0a0d14;
+            
+            --border-dim: #1e2638;
+            --border-med: #2d384e;
+            --border-hi: #485675;
+            
+            --text-label: #707e94;
+            --text-secondary: #94a3b8;
+            --text-value: #e2e8f0;
+            --text-white: #ffffff;
+            
+            /* Status / Annunciator Colors */
+            --status-ok: #22c55e;
+            --status-ok-dim: rgba(34, 197, 94, 0.15);
+            --status-warn: #f59e0b;
+            --status-warn-dim: rgba(245, 158, 11, 0.18);
+            --status-crit: #ef4444;
+            --status-crit-dim: rgba(239, 68, 68, 0.2);
+            --status-info: #06b6d4;
+            --status-info-dim: rgba(6, 182, 212, 0.15);
+            
+            /* Propellant Branding */
+            --prop-lox: #38bdf8;
+            --prop-lch4: #fb923c;
+            --prop-he: #a855f7;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-canvas);
+            color: var(--text-value);
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-size: 12px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-feature-settings: "tnum" 1, "zero" 1;
+        }
+
+        /* Panel Structure */
+        .gcs-panel {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-dim);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            min-height: 0;
+        }
+
+        .gcs-panel-header {
+            background: linear-gradient(180deg, var(--bg-header) 0%, #111520 100%);
+            border-bottom: 1px solid var(--border-dim);
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 28px;
+            flex-shrink: 0;
+        }
+
+        .gcs-subcard {
+            background-color: var(--bg-subpanel);
+            border: 1px solid var(--border-dim);
+            border-radius: 2px;
+            padding: 7px 9px;
+        }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-canvas); }
+        ::-webkit-scrollbar-thumb { background: var(--border-med); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+
+        /* Data Rows */
+        .telemetry-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(30, 38, 56, 0.6);
+            padding: 3.5px 0;
+        }
+        .telemetry-row:last-child { border-bottom: none; }
+
+        /* Pulse and Blink animations */
+        @keyframes pulse-dot {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .live-pulse {
+            animation: pulse-dot 1.5s infinite ease-in-out;
+        }
+
+        @keyframes blink-alert {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+        .blink-crit {
+            animation: blink-alert 0.8s infinite ease-in-out;
+        }
+        .blink-warn {
+            animation: blink-alert 1.2s infinite ease-in-out;
+        }
+
+        /* Mission Milestone Steps */
+        .milestone-step {
+            padding: 3px 8px;
+            border-radius: 2px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            color: #4b5563;
+            background: #11141c;
+            border: 1px solid #1f2937;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.25s ease;
+        }
+        .milestone-step.active {
+            color: #ffffff;
+            background: #1e3a8a;
+            border-color: #3b82f6;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+        }
+        .milestone-step.passed {
+            color: #22c55e;
+            background: #062816;
+            border-color: #15803d;
+        }
+
+        /* Annunciator Grid Matrix */
+        .caw-tile {
+            background-color: #0b0e14;
+            border: 1px solid #1e2638;
+            color: #475569;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 5px 8px;
+            text-align: center;
+            letter-spacing: 0.5px;
+            border-radius: 2px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .caw-tile.nominal {
+            color: #22c55e;
+            border-color: rgba(34, 197, 94, 0.4);
+            background: rgba(34, 197, 94, 0.08);
+            box-shadow: inset 0 0 6px rgba(34, 197, 94, 0.15);
+        }
+        .caw-tile.caution {
+            color: #f59e0b;
+            border-color: #d97706;
+            background: rgba(245, 158, 11, 0.15);
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.35);
+        }
+        .caw-tile.warning {
+            color: #ef4444;
+            border-color: #dc2626;
+            background: rgba(239, 68, 68, 0.25);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+
+        /* TVC Plot Box */
+        .tvc-plot {
+            position: relative;
+            width: 90px;
+            height: 90px;
+            border: 1px solid var(--border-med);
+            background: 
+                radial-gradient(circle, transparent 65%, rgba(45, 56, 78, 0.4) 66%),
+                linear-gradient(var(--border-dim) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-dim) 1px, transparent 1px);
+            background-size: 100% 100%, 15px 15px, 15px 15px;
+            background-position: center center;
+            border-radius: 2px;
+        }
+        .tvc-limit-ring {
+            position: absolute;
+            inset: 7px;
+            border: 1px dashed rgba(245, 158, 11, 0.4);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .tvc-cross { position: absolute; background: var(--border-hi); }
+        .tvc-cross-x { top: 50%; left: 0; right: 0; height: 1px; }
+        .tvc-cross-y { left: 50%; top: 0; bottom: 0; width: 1px; }
+        .tvc-target-bug {
+            position: absolute; width: 9px; height: 9px; border: 1px solid #38bdf8;
+            transform: translate(-50%, -50%); top: 50%; left: 50%; pointer-events: none;
+            transition: left 0.15s ease-out, top 0.15s ease-out;
+        }
+        .tvc-indicator {
+            position: absolute; width: 7px; height: 7px; background: var(--status-ok);
+            transform: translate(-50%, -50%); top: 50%; left: 50%; border-radius: 50%;
+            box-shadow: 0 0 6px var(--status-ok);
+            transition: left 0.12s cubic-bezier(0.2, 0.8, 0.4, 1), top 0.12s cubic-bezier(0.2, 0.8, 0.4, 1);
+        }
+
+        /* RCS Vehicle Schematic */
+        .rcs-schematic {
+            position: relative;
+            width: 76px;
+            height: 108px;
+            background: #090c12;
+            border: 1px solid var(--border-dim);
+            border-radius: 38px 38px 4px 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .rcs-body-line {
+            width: 36px;
+            height: 76px;
+            border: 1px solid #334155;
+            border-radius: 18px 18px 2px 2px;
+            background: #111723;
+            position: relative;
+        }
+        .rcs-thruster {
+            position: absolute;
+            background: #334155;
+            border: 1px solid #475569;
+            transition: all 0.1s ease;
+        }
+        .rcs-thruster.firing {
+            background: #38bdf8 !important;
+            border-color: #ffffff !important;
+            box-shadow: 0 0 10px #38bdf8, 0 0 16px #38bdf8;
+        }
+        .rcs-plume {
+            position: absolute;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s ease;
+        }
+        .rcs-thruster.firing + .rcs-plume {
+            opacity: 1;
+        }
+
+        /* Command buttons */
+        .cmd-btn {
+            background: linear-gradient(180deg, #1e2638 0%, #131824 100%);
+            border: 1px solid var(--border-hi);
+            color: var(--text-value);
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            border-radius: 2px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .cmd-btn:hover:not(:disabled) {
+            background: linear-gradient(180deg, #2b354d 0%, #1b2234 100%);
+            border-color: #64748b;
+            color: #ffffff;
+        }
+        .cmd-btn:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+        .cmd-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            border-color: var(--border-dim);
+        }
+        .cmd-btn-arm {
+            color: #f59e0b;
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+        }
+        .cmd-btn-arm:hover:not(:disabled) {
+            background: rgba(245, 158, 11, 0.25);
+            border-color: #fbbf24;
+            color: #ffffff;
+        }
+        .cmd-btn-launch {
+            background: linear-gradient(180deg, #16a34a 0%, #15803d 100%);
+            color: #ffffff;
+            border-color: #22c55e;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+        }
+        .cmd-btn-launch:hover:not(:disabled) {
+            background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+            box-shadow: 0 0 14px rgba(34, 197, 94, 0.6);
+        }
+        .cmd-btn-abort {
+            background: linear-gradient(180deg, #991b1b 0%, #7f1d1d 100%);
+            color: #ffffff;
+            border-color: #ef4444;
+            font-weight: 700;
+        }
+        .cmd-btn-abort:hover:not(:disabled) {
+            background: linear-gradient(180deg, #dc2626 0%, #991b1b 100%);
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.6);
+        }
+
+        /* Leaflet custom map */
+        .leaflet-container { background: #07090e !important; }
+        .leaflet-control-attribution { 
+            font-size: 9px !important; 
+            background: rgba(7, 9, 14, 0.8) !important;
+            color: #64748b !important;
+        }
+        .leaflet-control-attribution a { color: #94a3b8 !important; text-decoration: none; }
+
+        /* Filter Chips for Logs & Map */
+        .filter-chip {
+            padding: 3px 7px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+            background: #0f131c;
+            border: 1px solid #1e2638;
+            border-radius: 2px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .filter-chip:hover {
+            color: #cbd5e1;
+            border-color: #3b82f6;
+        }
+        .filter-chip.active {
+            color: #ffffff;
+            background: #2563eb;
+            border-color: #3b82f6;
+        }
+
+        /* Sound Indicator */
+        .sound-btn {
+            background: transparent;
+            border: 1px solid var(--border-med);
+            color: var(--text-secondary);
+            font-size: 10px;
+            padding: 3px 7px;
+            border-radius: 2px;
+            cursor: pointer;
+        }
+        .sound-btn.on {
+            color: var(--status-ok);
+            border-color: var(--status-ok);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ================================================================ -->
+    <!-- TOP STATUS BAR: MISSION CONTROL HEADER -->
+    <!-- ================================================================ -->
+    <header class="bg-[#0f121a] border-b border-[#1e2638] h-[46px] shrink-0 flex items-center justify-between px-3 z-20">
+        
+        <!-- Left: Vehicle Identity & Telemetry Status -->
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#22c55e] block live-pulse"></span>
+                <span class="font-bold tracking-wider text-white text-sm mono">NOVA-X</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-[#1e2638] text-cyan-400 mono font-semibold">LUNAR LDAM-02</span>
+            </div>
+
+            <div class="h-4 border-l border-[#2d384e]"></div>
+
+            <div id="sys-mode-badge" class="px-2 py-0.5 text-[11px] font-bold rounded mono bg-amber-950/60 text-amber-400 border border-amber-500/50">
+                SYS_STANDBY
+            </div>
+
+            <!-- Deep Space Network (DSN) Lunar RF Link Stats -->
+            <div class="hidden xl:flex items-center gap-3.5 mono text-[11px] text-[#707e94]">
+                <div>DSN: <span class="text-[#22c55e]">GOLDSTONE 70M</span></div>
+                <div>UP: <span class="text-[#22c55e]">50Hz</span></div>
+                <div>DN: <span class="text-[#22c55e]">4.8Mb/s</span></div>
+                <div>RTT: <span class="text-slate-300">1.28s</span></div>
+                <div>LOSS: <span class="text-[#22c55e]">0.0%</span></div>
+            </div>
+        </div>
+
+        <!-- Center: Lunar Mission Milestone Sequencer (Synchronized to Descent Video) -->
+        <div class="hidden lg:flex items-center gap-1.5">
+            <div id="ms-pre" class="milestone-step active">PRE-LNCH</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-arm" class="milestone-step">ARMED</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-liftoff" class="milestone-step">DE-ORBIT</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-maxq" class="milestone-step">PDI BRAKE</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-meco" class="milestone-step">APPROACH</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-apogee" class="milestone-step">TERMINAL</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-entry" class="milestone-step">DUST BLOW</div>
+            <span class="text-[#334155] text-xs">›</span>
+            <div id="ms-land" class="milestone-step">TOUCHDOWN</div>
+        </div>
+
+        <!-- Right: Clocks, Caution/Warning & Flight Actions -->
+        <div class="flex items-center gap-3.5">
+            
+            <!-- Master Caution / Warning indicators -->
+            <div class="flex items-center gap-1.5 mono text-[10px]">
+                <div id="master-caut" class="px-2 py-0.5 rounded border border-[#2d384e] text-[#475569] font-bold cursor-pointer">
+                    M_CAUT
+                </div>
+                <div id="master-warn" class="px-2 py-0.5 rounded border border-[#2d384e] text-[#475569] font-bold cursor-pointer">
+                    M_WARN
+                </div>
+            </div>
+
+            <!-- Sound toggle -->
+            <button id="btn-sound" class="sound-btn on" title="Toggle audio annunciators">
+                🔊 AUDIO: ON
+            </button>
+
+            <!-- Clocks -->
+            <div class="flex flex-col items-end mono">
+                <div class="text-[13px] font-bold text-white tracking-wider" id="mission-time">T- 00:00:00</div>
+                <div class="text-[10px] text-[#707e94]" id="utc-clock">UTC 00:00:00</div>
+            </div>
+
+            <div class="h-5 border-l border-[#2d384e]"></div>
+
+            <!-- Command Action Buttons -->
+            <div class="flex items-center gap-2">
+                <button id="btn-arm" class="cmd-btn cmd-btn-arm">ARM VEHICLE</button>
+                <button id="btn-launch" class="cmd-btn cmd-btn-launch" disabled>START DESCENT</button>
+                <button id="btn-hold" class="cmd-btn" disabled>HOLD</button>
+                <button id="btn-abort" class="cmd-btn cmd-btn-abort" title="Emergency Flight Abort System">ABORT / FTS</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================================================================ -->
+    <!-- MAIN WORKSPACE: 3-COLUMN TACTICAL CONSOLE -->
+    <!-- Left: 350px | Center: 1fr | Right: 360px -->
+    <!-- ================================================================ -->
+    <main class="flex-1 flex flex-col min-h-0 bg-[#07080b]">
+        
+        <div class="flex-1 grid grid-cols-[350px_1fr_360px] min-h-0 gap-[1px] bg-[#1e2638]">
+            
+            <!-- -------------------------------------------------------- -->
+            <!-- COLUMN 1: NAVIGATION, DYNAMICS & INERTIAL SENSORS (350px)-->
+            <!-- -------------------------------------------------------- -->
+            <section class="gcs-panel h-full">
+                <div class="gcs-panel-header">
+                    <span>LUNAR FLIGHT DYNAMICS // GNC</span>
+                    <span class="mono text-[10px] text-[#22c55e]">TRN_LIDAR_LOCK</span>
+                </div>
+
+                <div class="p-3 flex flex-col gap-2.5 flex-1 overflow-y-auto">
+                    
+                    <!-- Altitude & Velocity Tape Display -->
+                    <div class="gcs-subcard flex gap-3 h-[175px]">
+                        <!-- Moving Vertical Altitude Tape Canvas -->
+                        <div class="relative w-[58px] h-full bg-[#0a0d14] border border-[#1e2638] rounded-sm overflow-hidden">
+                            <canvas id="alt-canvas" class="absolute inset-0 w-full h-full"></canvas>
+                            <!-- Center Bug pointer -->
+                            <div class="absolute top-1/2 left-0 right-0 h-[20px] -mt-[10px] border-y border-r border-[#22c55e] bg-[#22c55e]/15 pointer-events-none flex items-center justify-end pr-1">
+                                <span class="w-1.5 h-1.5 bg-[#22c55e] rotate-45 block"></span>
+                            </div>
+                        </div>
+
+                        <!-- Readout Values -->
+                        <div class="flex-1 flex flex-col justify-between py-1">
+                            <div>
+                                <div class="text-[10px] font-semibold text-[#707e94] tracking-wider uppercase">LUNAR ELEVATION (ASL)</div>
+                                <div class="mono text-3xl font-bold text-white flex items-baseline gap-1.5">
+                                    <span id="alt-val">32,000</span>
+                                    <span class="text-xs text-[#94a3b8] font-normal">m</span>
+                                    <span id="alt-trend" class="text-xs text-[#707e94] ml-1">■</span>
+                                </div>
+                                <div class="text-[10px] text-[#707e94] mono mt-1">
+                                    RADAR ALTIMETER (AGL): <span id="radar-alt" class="text-slate-300 font-semibold">32,000</span> m
+                                </div>
+                            </div>
+
+                            <div class="border-t border-[#1e2638] pt-2">
+                                <div class="text-[10px] font-semibold text-[#707e94] tracking-wider uppercase">VERTICAL DESCENT RATE</div>
+                                <div class="mono text-xl font-bold text-slate-200">
+                                    <span id="vel-val">-15.0</span> <span class="text-xs text-[#94a3b8] font-normal">m/s</span>
+                                </div>
+                                <div class="text-[10px] text-[#707e94] mono mt-0.5">
+                                    HORIZ VEL: <span id="mach-val" class="text-slate-300">1,680</span> m/s | GROUND: <span id="spd-kmh" class="text-slate-300">6,048</span> km/h
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gravity & Environmental Metrics -->
+                    <div class="gcs-subcard">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider">LUNAR GRAVITY & HARD VACUUM</span>
+                            <span id="q-val" class="mono text-xs text-cyan-400 font-bold">1.62 m/s² (0.165 G)</span>
+                        </div>
+                        <div class="h-2 bg-[#0a0d14] rounded-sm overflow-hidden border border-[#1e2638]">
+                            <div id="q-bar" class="h-full bg-cyan-500 transition-all duration-150" style="width: 16.5%;"></div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-[#707e94] mono mt-1">
+                            <span>0.00 G</span>
+                            <span class="text-cyan-400 font-semibold">LUNAR SURFACE: 0.165 G</span>
+                            <span>1.00 G (EARTH)</span>
+                        </div>
+                    </div>
+
+                    <!-- Inertial Measurement Unit (IMU) & Rates -->
+                    <div class="gcs-subcard">
+                        <div class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider mb-1.5 flex justify-between">
+                            <span>ATTITUDE & INERTIAL VECTOR</span>
+                            <span class="text-[10px] text-[#22c55e] mono">IMU-1 PRIMARY</span>
+                        </div>
+                        
+                        <div class="space-y-1.5 mono text-[11px]">
+                            <div class="telemetry-row">
+                                <span class="text-[#707e94]">PITCH (θ)</span>
+                                <div class="flex items-center gap-2">
+                                    <span id="imu-pitch" class="text-white font-semibold text-right w-16">15.0°</span>
+                                    <span class="text-[#64748b] text-[10px]" id="rate-pitch">0.0°/s</span>
+                                </div>
+                            </div>
+                            <div class="telemetry-row">
+                                <span class="text-[#707e94]">ROLL (φ)</span>
+                                <div class="flex items-center gap-2">
+                                    <span id="imu-roll" class="text-white font-semibold text-right w-16">0.0°</span>
+                                    <span class="text-[#64748b] text-[10px]" id="rate-roll">0.0°/s</span>
+                                </div>
+                            </div>
+                            <div class="telemetry-row">
+                                <span class="text-[#707e94]">YAW (ψ)</span>
+                                <div class="flex items-center gap-2">
+                                    <span id="imu-yaw" class="text-white font-semibold text-right w-16">90.0°</span>
+                                    <span class="text-[#64748b] text-[10px]" id="rate-yaw">0.0°/s</span>
+                                </div>
+                            </div>
+                            <div class="telemetry-row">
+                                <span class="text-[#707e94]">NET G-LOAD</span>
+                                <div class="flex items-center gap-2">
+                                    <span id="imu-g" class="text-[#22c55e] font-bold text-right w-16">0.165 G</span>
+                                    <span class="text-[#64748b] text-[10px]" id="accel-net">+1.6 m/s²</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Geodetic Trajectory Status -->
+                    <div class="gcs-subcard flex-1 flex flex-col justify-between">
+                        <div>
+                            <div class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider mb-1 flex justify-between">
+                                <span>NAVIGATION FIX (LUNAR DATUM)</span>
+                                <span class="text-[10px] text-[#22c55e] mono">OPTICAL TRN FIXED</span>
+                            </div>
+                            <div class="space-y-1.5 mono text-[11px]">
+                                <div class="telemetry-row">
+                                    <span class="text-[#707e94]">DOWNRANGE TO LZ-1</span>
+                                    <span id="nav-downrange" class="text-slate-200">142.5 km</span>
+                                </div>
+                                <div class="telemetry-row">
+                                    <span class="text-[#707e94]">CROSS-TRACK ERROR</span>
+                                    <span id="nav-crosstrack" class="text-slate-200">0.0 m</span>
+                                </div>
+                                <div class="telemetry-row">
+                                    <span class="text-[#707e94]">PERILUNE ALTITUDE</span>
+                                    <span id="nav-apogee" class="text-cyan-400 font-semibold">15.4 km</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System Voltage & Avionics Thermal -->
+                        <div class="border-t border-[#1e2638] pt-2 mt-2 flex justify-between mono text-[10px] text-[#707e94]">
+                            <div>MAIN BUS: <span class="text-slate-200">28.4 V</span></div>
+                            <div>BATT: <span class="text-[#22c55e]">98%</span></div>
+                            <div>LUNAR_TEMP: <span class="text-slate-200">-18°C</span></div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- -------------------------------------------------------- -->
+            <!-- COLUMN 2: PRIMARY FLIGHT DISPLAY (3-WAY SPLIT 3D) & MAP -->
+            <!-- -------------------------------------------------------- -->
+            <section class="flex flex-col min-h-0 h-full gap-[1px]">
+                
+                <!-- UPPER MFD: 3D MULTI-VIEWPORT LUNAR SIMULATION & VIDEO -->
+                <div class="gcs-panel flex-[1.1]">
+                    <div class="gcs-panel-header">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span id="mfd-title">3D LUNAR MULTI-VIEWPORT // TRIPLE OPTICAL SENSOR</span>
+                            <span id="mfd-subbadge" class="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 mono">3-WAY SPLIT 60FPS</span>
+                        </div>
+                        <div class="flex items-center gap-1.5 mono text-[10px]">
+                            <!-- View Mode Toggle: 3D Multi-Cam vs MP4 Video -->
+                            <button id="btn-toggle-view" class="filter-chip active text-[9px] py-0.5" title="Switch between 3D Multi-Camera Simulation and MP4 Video Feed">VIEW: 3D MULTI-CAM</button>
+                            
+                            <!-- Split Layout Toggle -->
+                            <button id="btn-toggle-split" class="filter-chip active text-[9px] py-0.5" title="Toggle 3-way split or maximize primary descent camera">LAYOUT: 3-WAY SPLIT</button>
+
+                            <button id="btn-toggle-hud" class="filter-chip active text-[9px] py-0.5">HUD: ON</button>
+                            <span id="vid-time-tag" class="text-cyan-400 font-semibold ml-1">T+ 00:00 / 03:03</span>
+                        </div>
+                    </div>
+
+                    <div class="relative flex-1 bg-[#050608] overflow-hidden flex items-center justify-center" id="three-container">
+                        
+                        <!-- 3D Three.js WebGL Multi-Viewport Canvas -->
+                        <canvas id="three-canvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
+
+                        <!-- Embedded Video Element (output.mp4) (swapped when in MP4 mode) -->
+                        <video id="camera-video" src="output.mp4" playsinline muted preload="auto" class="absolute inset-0 w-full h-full object-cover z-0 hidden"></video>
+                        
+                        <!-- High DPI Canvas for Artificial Horizon & Flight Path Vector overlay (Left 60% Viewport) -->
+                        <canvas id="hud-horizon" class="absolute top-0 bottom-0 left-0 w-[60%] h-full z-10 pointer-events-none"></canvas>
+                        
+                        <!-- Viewport Dividers for 3-Way Split Layout -->
+                        <div id="split-line-v" class="absolute top-0 bottom-0 left-[60%] w-[1px] bg-[#1e2638] z-20 pointer-events-none"></div>
+                        <div id="split-line-h" class="absolute top-[50%] right-0 left-[60%] h-[1px] bg-[#1e2638] z-20 pointer-events-none"></div>
+
+                        <!-- Optical sensor scanlines & vignette -->
+                        <div class="absolute inset-0 pointer-events-none opacity-10 z-10" style="background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noise%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noise)%22/%3E%3C/svg%3E');"></div>
+                        
+                        <!-- VIEWPORT 1 (LEFT 60%): Primary Descent Camera Overlay -->
+                        <div id="badge-cam1" class="absolute top-2 left-3 z-20 mono text-[10px] bg-[#070a10]/85 px-2 py-0.5 rounded border border-[#1e2638] text-slate-300">
+                            TRK: <span id="hud-track-deg" class="text-white font-bold">090°</span> | TILT: <span id="hud-tilt-deg" class="text-white font-bold">75.0°</span> | <span class="text-cyan-400 font-bold">CAM 1: DESCENT EO-01 (PRIMARY)</span>
+                        </div>
+
+                        <!-- Target Box / Reticle indicator on Primary Viewport -->
+                        <div id="badge-target" class="absolute top-2 left-[44%] z-20 mono text-[10px] bg-[#070a10]/85 px-2 py-0.5 rounded border border-[#1e2638] text-[#707e94]">
+                            TARGET: <span class="text-cyan-400 font-semibold">LZ-LUNAR-1</span>
+                        </div>
+
+                        <!-- VIEWPORT 2 (TOP-RIGHT 40%): Oblique Horizon Camera Overlay -->
+                        <div id="badge-cam2" class="absolute top-2 left-[61.5%] z-20 mono text-[9px] bg-[#070a10]/85 px-2 py-0.5 rounded border border-[#1e2638] text-slate-300">
+                            <span class="text-amber-400 font-bold">CAM 2: OBLIQUE HORIZON & LIMB</span> [68° WIDE]
+                        </div>
+
+                        <!-- VIEWPORT 3 (BOTTOM-RIGHT 40%): Nadir TRN Crater Zoom Overlay -->
+                        <div id="badge-cam3" class="absolute top-[52%] left-[61.5%] z-20 mono text-[9px] bg-[#070a10]/85 px-2 py-0.5 rounded border border-[#1e2638] text-slate-300">
+                            <span class="text-emerald-400 font-bold">CAM 3: NADIR TRN CRATER ZOOM</span> [32° TELEPHOTO 2.5X]
+                        </div>
+                        <div id="reticle-cam3" class="absolute top-[75%] left-[80%] -translate-x-1/2 -translate-y-1/2 w-8 h-8 pointer-events-none z-20 border border-emerald-400/40 rounded-full flex items-center justify-center">
+                            <div class="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
+                        </div>
+
+                        <!-- Video Scrubber / Jump Bar on bottom of camera field -->
+                        <div class="absolute bottom-2 left-3 right-3 z-20 flex items-center justify-between pointer-events-auto">
+                            <!-- Quick Timeline Jump Buttons -->
+                            <div class="flex items-center gap-1 mono text-[9px]">
+                                <button class="filter-chip text-[9px] py-0.5 bg-[#0b0e14]/90" onclick="seekVideo(0)">DE-ORBIT (00:00)</button>
+                                <button class="filter-chip text-[9px] py-0.5 bg-[#0b0e14]/90" onclick="seekVideo(25)">PDI BRAKE (00:25)</button>
+                                <button class="filter-chip text-[9px] py-0.5 bg-[#0b0e14]/90" onclick="seekVideo(105)">APPROACH (01:45)</button>
+                                <button class="filter-chip text-[9px] py-0.5 bg-[#0b0e14]/90" onclick="seekVideo(160)">DUST (02:40)</button>
+                                <button class="filter-chip text-[9px] py-0.5 bg-[#0b0e14]/90" onclick="seekVideo(168)">TOUCHDOWN (02:48)</button>
+                            </div>
+                            
+                            <!-- Bottom GPS coordinates readout -->
+                            <div class="mono text-[10px] text-[#64748b] bg-[#070a10]/80 px-2 py-0.5 rounded border border-[#1e2638]" id="hud-coord">
+                                LAT: 0.67408° N | LON: 23.47297° E (MOON)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LOWER MFD: LUNAR SURFACE SITUATION & TRAJECTORY MAP -->
+                <div class="gcs-panel flex-1">
+                    <div class="gcs-panel-header">
+                        <div class="flex items-center gap-2">
+                            <span>LUNAR SURFACE TACTICAL MAP // OPENPLANETARY & NASA LROC</span>
+                            <span class="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 mono">LUNAR WAC</span>
+                        </div>
+                        
+                        <!-- Moon Map View & Layer Controls -->
+                        <div class="flex items-center gap-1.5">
+                            <button id="map-btn-track" class="filter-chip active">FOLLOW VEHICLE</button>
+                            <button id="map-btn-pad" class="filter-chip">TRANQUILLITY BASE</button>
+                            <button id="map-btn-lz" class="filter-chip">LZ-LUNAR-1</button>
+                            <button id="map-btn-layer" class="filter-chip" title="Toggle Moon Basemap (Labels vs Shaded Relief)">MAP: LABELED</button>
+                        </div>
+                    </div>
+
+                    <div class="relative flex-1 bg-[#07090e]">
+                        <div id="map" class="absolute inset-0 z-0"></div>
+
+                        <!-- Map Overlaid Telemetry Card -->
+                        <div class="absolute bottom-2 left-2 z-10 mono text-[10px] bg-[#0b0e14]/90 border border-[#1e2638] rounded p-2 space-y-1 text-[#94a3b8]">
+                            <div>LUNAR BASE: <span class="text-white">TRANQUILLITY BASE SITE A</span></div>
+                            <div>LANDING ZONE: <span class="text-cyan-400">LZ-LUNAR-1 (RANGE: <span id="map-range-lz">0.0</span> km)</span></div>
+                            <div>SURFACE CORRIDOR: <span class="text-[#22c55e]">MARE TRANQUILLITATIS APPROACH</span></div>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- -------------------------------------------------------- -->
+            <!-- COLUMN 3: VEHICLE HEALTH, PROPULSION & ACTUATION (360px)-->
+            <!-- -------------------------------------------------------- -->
+            <section class="gcs-panel h-full">
+                <div class="gcs-panel-header">
+                    <span>PROPULSION & ACTUATION</span>
+                    <span class="mono text-[10px] text-[#38bdf8]">NOVA-1 LUNAR METHALOX</span>
+                </div>
+
+                <div class="p-3 flex flex-col gap-2.5 flex-1 overflow-y-auto">
+                    
+                    <!-- Main Propulsion Engine Gauges -->
+                    <div class="gcs-subcard">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider">LUNAR DESCENT ENGINE (LDE)</span>
+                            <span id="engine-status" class="mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">SHUTDOWN</span>
+                        </div>
+
+                        <!-- Chamber Pressure (Pc) & Throttle -->
+                        <div class="grid grid-cols-2 gap-2.5 mt-2 mono text-[11px]">
+                            <div class="bg-[#0a0d14] p-2 border border-[#1e2638] rounded-sm">
+                                <div class="text-[9px] text-[#707e94] uppercase">CHAMBER PRESS (Pc)</div>
+                                <div class="text-base font-bold text-white mt-0.5">
+                                    <span id="engine-pc">0.0</span> <span class="text-[10px] text-[#707e94]">bar</span>
+                                </div>
+                                <div class="h-1.5 bg-[#1e2638] mt-1.5 rounded-sm overflow-hidden">
+                                    <div id="engine-pc-bar" class="h-full bg-cyan-400" style="width: 0%;"></div>
+                                </div>
+                            </div>
+
+                            <div class="bg-[#0a0d14] p-2 border border-[#1e2638] rounded-sm">
+                                <div class="text-[9px] text-[#707e94] uppercase">THROTTLE CMD</div>
+                                <div class="text-base font-bold text-white mt-0.5">
+                                    <span id="engine-thrust">0</span> <span class="text-[10px] text-[#707e94]">%</span>
+                                </div>
+                                <div class="h-1.5 bg-[#1e2638] mt-1.5 rounded-sm overflow-hidden">
+                                    <div id="engine-thrust-bar" class="h-full bg-[#22c55e]" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-between text-[10px] mono text-[#707e94] mt-2">
+                            <span>TURBOPUMP: <span id="turbopump-rpm" class="text-slate-300">0</span> RPM</span>
+                            <span>VACUUM THRUST: <span id="thrust-kn" class="text-slate-300">0.0</span> kN</span>
+                        </div>
+                    </div>
+
+                    <!-- Cryogenic Tankage Block -->
+                    <div class="gcs-subcard space-y-2.5">
+                        <div class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider flex justify-between">
+                            <span>CRYOGENIC TANKAGE (VACUUM INSULATED)</span>
+                            <span class="text-[10px] text-cyan-400 mono">PNEUMATICS OK</span>
+                        </div>
+                        
+                        <!-- LOX (Liquid Oxygen) -->
+                        <div>
+                            <div class="flex justify-between text-[11px] mb-1">
+                                <span class="font-semibold text-[var(--prop-lox)]">LOX (OXIDIZER)</span>
+                                <span id="prop-lox-val" class="mono font-bold text-[var(--prop-lox)]">100.0%</span>
+                            </div>
+                            <div class="h-2 bg-[#0a0d14] rounded-sm overflow-hidden border border-[#1e2638]">
+                                <div id="prop-lox-bar" class="h-full bg-[var(--prop-lox)] transition-all duration-100" style="width: 100%;"></div>
+                            </div>
+                            <div class="flex justify-between mono text-[10px] text-[#707e94] mt-1">
+                                <span>MASS: <span id="prop-lox-kg" class="text-slate-300">14,200</span> kg</span>
+                                <span>P_ULLAGE: <span id="prop-lox-p" class="text-slate-200 font-semibold">4.50</span> bar</span>
+                            </div>
+                        </div>
+
+                        <!-- LCH4 (Liquid Methane) -->
+                        <div>
+                            <div class="flex justify-between text-[11px] mb-1">
+                                <span class="font-semibold text-[var(--prop-lch4)]">LCH4 (FUEL)</span>
+                                <span id="prop-lch-val" class="mono font-bold text-[var(--prop-lch4)]">100.0%</span>
+                            </div>
+                            <div class="h-2 bg-[#0a0d14] rounded-sm overflow-hidden border border-[#1e2638]">
+                                <div id="prop-lch-bar" class="h-full bg-[var(--prop-lch4)] transition-all duration-100" style="width: 100%;"></div>
+                            </div>
+                            <div class="flex justify-between mono text-[10px] text-[#707e94] mt-1">
+                                <span>MASS: <span id="prop-lch-kg" class="text-slate-300">4,100</span> kg</span>
+                                <span>P_ULLAGE: <span id="prop-lch-p" class="text-slate-200 font-semibold">4.20</span> bar</span>
+                            </div>
+                        </div>
+
+                        <!-- Helium Pressurization System -->
+                        <div class="border-t border-[#1e2638] pt-2 flex justify-between mono text-[10px] text-[#707e94]">
+                            <span>COPV He PRESS:</span>
+                            <span class="text-purple-400 font-semibold"><span id="prop-he-p">310.0</span> bar</span>
+                        </div>
+                    </div>
+
+                    <!-- Actuation: TVC Gimbal & RCS -->
+                    <div class="gcs-subcard flex-1 flex flex-col justify-between">
+                        <div class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider mb-1">
+                            ATTITUDE CONTROL ACTUATORS
+                        </div>
+
+                        <div class="flex items-center justify-around gap-2 my-1.5">
+                            
+                            <!-- TVC Gimbal 2D Plot -->
+                            <div class="flex flex-col items-center">
+                                <div class="text-[9px] text-[#707e94] uppercase mb-1">TVC GIMBAL (±8°)</div>
+                                <div class="tvc-plot" id="tvc-plot">
+                                    <div class="tvc-limit-ring"></div>
+                                    <div class="tvc-cross tvc-cross-x"></div>
+                                    <div class="tvc-cross tvc-cross-y"></div>
+                                    <div class="tvc-target-bug" id="tvc-target"></div>
+                                    <div id="tvc-dot" class="tvc-indicator"></div>
+                                </div>
+                                <div class="flex justify-between w-full mt-2 mono text-[10px] text-[#707e94]">
+                                    <span>P: <span id="tvc-p-val" class="text-slate-200">0.0°</span></span>
+                                    <span>Y: <span id="tvc-y-val" class="text-slate-200">0.0°</span></span>
+                                </div>
+                            </div>
+
+                            <!-- RCS Vehicle Silhouette Display -->
+                            <div class="flex flex-col items-center">
+                                <div class="text-[9px] text-[#707e94] uppercase mb-1">RCS COLD GAS (N2)</div>
+                                <div class="rcs-schematic">
+                                    <div class="rcs-body-line">
+                                        <!-- Top Pitch Thrusters -->
+                                        <div id="rcs-pitch-up" class="rcs-thruster w-3 h-1.5 -top-2 left-1/2 -ml-[6px] rounded-t-sm"></div>
+                                        <div class="rcs-plume -top-4 left-1/2 -ml-2 text-cyan-400 text-[9px]">▲</div>
+                                        
+                                        <div id="rcs-pitch-dn" class="rcs-thruster w-3 h-1.5 -bottom-2 left-1/2 -ml-[6px] rounded-b-sm"></div>
+                                        <div class="rcs-plume -bottom-4 left-1/2 -ml-2 text-cyan-400 text-[9px]">▼</div>
+
+                                        <!-- Lateral Yaw Thrusters -->
+                                        <div id="rcs-yaw-l" class="rcs-thruster w-1.5 h-3 top-4 -left-2 rounded-l-sm"></div>
+                                        <div class="rcs-plume top-3 -left-4 text-cyan-400 text-[9px]">◀</div>
+
+                                        <div id="rcs-yaw-r" class="rcs-thruster w-1.5 h-3 top-4 -right-2 rounded-r-sm"></div>
+                                        <div class="rcs-plume top-3 -right-4 text-cyan-400 text-[9px]">▶</div>
+
+                                        <!-- Roll Thrusters -->
+                                        <div id="rcs-roll-l" class="rcs-thruster w-1.5 h-3 bottom-4 -left-2 rounded-l-sm"></div>
+                                        <div id="rcs-roll-r" class="rcs-thruster w-1.5 h-3 bottom-4 -right-2 rounded-r-sm"></div>
+                                    </div>
+                                </div>
+                                <div class="mt-2 mono text-[10px] text-[#707e94]" id="rcs-status">
+                                    STATE: <span class="text-slate-300">STANDBY</span>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- 3D Rocket Vehicle Model Viewport (MODEL) -->
+                        <div class="relative w-full h-[195px] bg-[#07090e] border border-[#1e2638] rounded-sm overflow-hidden my-1.5 flex items-center justify-center">
+                            <canvas id="rocket-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+                            <div class="absolute top-1 left-2 mono text-[9px] text-[#64748b] bg-[#0b0e14]/85 px-1.5 py-0.5 rounded border border-[#1e2638]">
+                                MODEL // 3D VEHICLE ATTITUDE
+                            </div>
+                            <div class="absolute top-1 right-2 flex items-center gap-1 z-10">
+                                <button id="btn-rk-iso" class="mono text-[8px] filter-chip active py-0.2 px-1 text-slate-300" onclick="setRocketAttitudePreset('iso')">ISO</button>
+                                <button id="btn-rk-front" class="mono text-[8px] filter-chip py-0.2 px-1 text-slate-400 hover:text-white" onclick="setRocketAttitudePreset('front')">FRONT</button>
+                                <button id="btn-rk-top" class="mono text-[8px] filter-chip py-0.2 px-1 text-slate-400 hover:text-white" onclick="setRocketAttitudePreset('top')">TOP</button>
+                                <button id="btn-rk-auto" class="mono text-[8px] filter-chip py-0.2 px-1 text-slate-400 hover:text-white" onclick="setRocketAttitudePreset('auto')" title="Continuous 360° inspection spin">AUTO</button>
+                                <button id="btn-reset-rocket" class="mono text-[8px] filter-chip py-0.2 px-1 text-slate-400 hover:text-white" title="Reset camera view">RESET</button>
+                            </div>
+                            <div class="absolute bottom-1 left-2 mono text-[8px] text-[#707e94]">
+                                P: <span id="rocket-p-deg" class="text-slate-200">15.0°</span> | R: <span id="rocket-r-deg" class="text-slate-200">0.0°</span> | Y: <span id="rocket-y-deg" class="text-slate-200">90.0°</span>
+                            </div>
+                            <div id="rocket-loading" class="absolute inset-0 flex items-center justify-center bg-[#07090e]/90 text-cyan-400 mono text-[9px]">
+                                <span class="animate-pulse">LOADING MODEL...</span>
+                            </div>
+                            <input type="file" id="rocket-file-input" accept=".3mf,.glb,.gltf" style="display:none">
+                        </div>
+
+                        <!-- Actuator health status -->
+                        <div class="border-t border-[#1e2638] pt-1.5 flex justify-between mono text-[9px] text-[#707e94]">
+                            <span>PNEUMATIC ACTUATION: <span class="text-[#22c55e]">205 BAR</span></span>
+                            <span>SERVO RESPONSE: <span class="text-slate-300">9 ms</span></span>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- BOTTOM CONSOLE: EXPANDED CAUTION & WARNING MATRIX + TERMINAL -->
+        <!-- Height: h-[230px] | C&W Panel Width: w-[350px] -->
+        <!-- ============================================================ -->
+        <section class="h-[230px] shrink-0 border-t border-[#1e2638] flex bg-[#090b10] z-20">
+            
+            <!-- Left: Annunciator Warning Matrix (C&W Panel: 350px) -->
+            <div class="w-[350px] border-r border-[#1e2638] p-2.5 flex flex-col justify-between shrink-0">
+                <div class="text-[10px] font-bold text-[#707e94] uppercase tracking-wider mb-1.5 flex justify-between items-center">
+                    <span>CAUTION & WARNING MATRIX</span>
+                    <span class="mono text-[9px] text-slate-400">10 CHANNELS</span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 flex-1">
+                    <div id="caw-rf" class="caw-tile nominal">DSN_LOCK</div>
+                    <div id="caw-gnss" class="caw-tile nominal">TRN_LIDAR</div>
+                    <div id="caw-imu" class="caw-tile nominal">IMU_NOMINAL</div>
+                    <div id="caw-q" class="caw-tile">REGOLITH_DUST</div>
+                    <div id="caw-meco" class="caw-tile">APOGEE_CUT</div>
+                    <div id="caw-aero" class="caw-tile">VAC_DESCENT</div>
+                    <div id="caw-ign" class="caw-tile">ENGINE_IGN</div>
+                    <div id="caw-radar" class="caw-tile">RADAR_ALTIM</div>
+                    <div id="caw-gear" class="caw-tile">GEAR_DEPLOY</div>
+                    <div id="caw-fts" class="caw-tile">FTS_ARMED</div>
+                </div>
+
+                <div class="mt-1.5 flex justify-between mono text-[9px] text-[#64748b]">
+                    <span>STATUS: ALL LUNAR SENSORS GREEN</span>
+                    <span>SILENCE ALARMS [ESC]</span>
+                </div>
+            </div>
+
+            <!-- Right: Operational Command Terminal & SLM Telemetry Stream -->
+            <div class="flex-1 flex flex-col min-w-0">
+                
+                <!-- Terminal Header Bar & Category Filters -->
+                <div class="h-[30px] bg-[#0d1017] border-b border-[#1e2638] px-3 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-[11px] text-white mono uppercase">COMMAND TERMINAL // EDGE SLM STREAM</span>
+                        <div class="flex items-center gap-1.5 ml-2">
+                            <button class="filter-chip active" data-filter="all">ALL</button>
+                            <button class="filter-chip" data-filter="slm">GNC/SLM</button>
+                            <button class="filter-chip" data-filter="prop">PROP</button>
+                            <button class="filter-chip" data-filter="comms">DSN/RF</button>
+                            <button class="filter-chip" data-filter="crit">FAULTS</button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button id="btn-autoscroll" class="filter-chip active">AUTOSCROLL: ON</button>
+                        <button id="btn-clear-log" class="filter-chip">CLEAR</button>
+                        <button id="btn-dump-log" class="filter-chip">DUMP TLM</button>
+                    </div>
+                </div>
+
+                <!-- Log Output Area -->
+                <div id="console-output" class="p-2.5 flex-1 overflow-y-auto mono text-[11px] leading-relaxed break-words bg-[#06080d] space-y-1">
+                    <!-- Stream entries injected dynamically -->
+                </div>
+
+                <!-- Quick Action Command Chips & Input Bar -->
+                <div class="border-t border-[#1e2638] bg-[#0a0d14] flex flex-col">
+                    <div class="px-2.5 py-1 flex items-center gap-2 border-b border-[#151b26] overflow-x-auto">
+                        <span class="text-[9px] text-[#64748b] mono uppercase font-semibold">QUICK ACTIONS:</span>
+                        <button class="cmd-chip text-[10px] px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1f2638] text-slate-300 mono" onclick="runCmd('help')">help</button>
+                        <button class="cmd-chip text-[10px] px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1f2638] text-slate-300 mono" onclick="runCmd('status')">status</button>
+                        <button class="cmd-chip text-[10px] px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1f2638] text-slate-300 mono" onclick="runCmd('rcs_test')">rcs_test</button>
+                        <button class="cmd-chip text-[10px] px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1f2638] text-slate-300 mono" onclick="seekVideo(160)">jump_dust</button>
+                        <button class="cmd-chip text-[10px] px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1f2638] text-slate-300 mono" onclick="seekVideo(168)">jump_land</button>
+                        <button class="cmd-chip text-[10px] px-2 py-0.5 rounded bg-red-950/60 hover:bg-red-900/80 text-red-400 border border-red-800/40 mono" onclick="runCmd('abort')">abort</button>
+                    </div>
+
+                    <div class="relative flex items-center">
+                        <span class="absolute left-3 text-[#22c55e] mono text-xs font-bold pointer-events-none">CMD&gt;</span>
+                        <input type="text" id="console-input" class="w-full bg-transparent text-[#22c55e] mono text-xs py-2 pl-14 pr-3 outline-none focus:bg-[#0c101a]" placeholder="Enter operational command... (type 'help' for full catalog)" autocomplete="off">
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- ================================================================ -->
+    <!-- JAVASCRIPT: LUNAR MAP, 3D SIMULATION ENGINE, VIDEO SYNCHRONIZATION -->
+    <!-- ================================================================ -->
+    <script>
+        // --- High-Fidelity Lunar Vehicle State Model ---
+        const state = {
+            phase: 'STANDBY', // STANDBY, ARMED, LUNAR_DEORBIT_COAST, POWERED_BRAKING_BURN, TERRAIN_NAV_APPROACH, TERMINAL_HAZARD_AVOID, FINAL_HOVER_APPROACH, REGOLITH_DUST_BLOWOUT, TOUCHDOWN_LUNAR_SURFACE, ABORT, HOLD
+            paused: false,
+            time: 0,
+            
+            // Dynamics & Kinematics (Moon: g = 1.622 m/s²)
+            alt: 32000.0,
+            radarAlt: 32000.0,
+            vel: -15.0,
+            horizVel: 1680.0,
+            accel: 0.0,
+            q: 0.0,
+            
+            // Attitude & Angular Rates
+            pitch: 15.0,
+            roll: 0.0,
+            yaw: 90.0,
+            ratePitch: 0.0,
+            rateRoll: 0.0,
+            rateYaw: 0.0,
+            gforce: 0.165,
+            
+            // Lunar Coordinates: De-orbit track approaching Mare Tranquillitatis LZ-1
+            launchLat: 0.58000,
+            launchLon: 23.15000,
+            targetLat: 0.68600,
+            targetLon: 23.49800,
+            lat: 0.58000,
+            lon: 23.15000,
+            downrange: 142.5,
+            crossTrack: 0.0,
+            apogeePred: 15.4,
+            
+            // Propulsion Subsystem
+            engineActive: false,
+            pc: 0.0,
+            thrustPercent: 0,
+            turbopumpRpm: 0,
+            lox: 100.0,
+            lch4: 100.0,
+            lox_mass: 14200,
+            lch4_mass: 4100,
+            lox_p: 4.50,
+            lch4_p: 4.20,
+            copv_he_p: 310.0,
+            
+            // Actuation (TVC & RCS)
+            tvc_pitch: 0.0,
+            tvc_yaw: 0.0,
+            tvc_target_p: 0.0,
+            tvc_target_y: 0.0,
+            
+            // 3D & Video Display Mode
+            viewMode: '3d', // '3d' or 'video'
+            splitLayout: true, // true = 3-way split (left main, top-right horizon, bottom-right nadir)
+            hudVisible: true,
+            audioEnabled: true
+        };
+
+        // --- Cached UI Element Map ---
+        const UI = {
+            modeBadge: document.getElementById('sys-mode-badge'),
+            missionTime: document.getElementById('mission-time'),
+            utcClock: document.getElementById('utc-clock'),
+            btnArm: document.getElementById('btn-arm'),
+            btnLaunch: document.getElementById('btn-launch'),
+            btnHold: document.getElementById('btn-hold'),
+            btnAbort: document.getElementById('btn-abort'),
+            btnSound: document.getElementById('btn-sound'),
+            masterCaut: document.getElementById('master-caut'),
+            masterWarn: document.getElementById('master-warn'),
+            
+            // 3D & Video Elements
+            threeCanvas: document.getElementById('three-canvas'),
+            threeContainer: document.getElementById('three-container'),
+            cameraVideo: document.getElementById('camera-video'),
+            vidTimeTag: document.getElementById('vid-time-tag'),
+            btnToggleView: document.getElementById('btn-toggle-view'),
+            btnToggleSplit: document.getElementById('btn-toggle-split'),
+            btnToggleHud: document.getElementById('btn-toggle-hud'),
+            mfdTitle: document.getElementById('mfd-title'),
+            mfdSubbadge: document.getElementById('mfd-subbadge'),
+            splitLineV: document.getElementById('split-line-v'),
+            splitLineH: document.getElementById('split-line-h'),
+            badgeCam1: document.getElementById('badge-cam1'),
+            badgeCam2: document.getElementById('badge-cam2'),
+            badgeCam3: document.getElementById('badge-cam3'),
+            badgeTarget: document.getElementById('badge-target'),
+            reticleCam3: document.getElementById('reticle-cam3'),
+            
+            // Dynamics Readouts
+            alt: document.getElementById('alt-val'),
+            radarAlt: document.getElementById('radar-alt'),
+            trend: document.getElementById('alt-trend'),
+            vel: document.getElementById('vel-val'),
+            mach: document.getElementById('mach-val'),
+            spdKmh: document.getElementById('spd-kmh'),
+            qVal: document.getElementById('q-val'),
+            qBar: document.getElementById('q-bar'),
+            
+            // IMU & Kinematics
+            imuPitch: document.getElementById('imu-pitch'),
+            imuRoll: document.getElementById('imu-roll'),
+            imuYaw: document.getElementById('imu-yaw'),
+            ratePitch: document.getElementById('rate-pitch'),
+            rateRoll: document.getElementById('rate-roll'),
+            rateYaw: document.getElementById('rate-yaw'),
+            imuG: document.getElementById('imu-g'),
+            accelNet: document.getElementById('accel-net'),
+            
+            // Navigation
+            navDownrange: document.getElementById('nav-downrange'),
+            navCrosstrack: document.getElementById('nav-crosstrack'),
+            navApogee: document.getElementById('nav-apogee'),
+            
+            // Propulsion Readouts
+            engineStatus: document.getElementById('engine-status'),
+            enginePc: document.getElementById('engine-pc'),
+            enginePcBar: document.getElementById('engine-pc-bar'),
+            engineThrust: document.getElementById('engine-thrust'),
+            engineThrustBar: document.getElementById('engine-thrust-bar'),
+            turbopumpRpm: document.getElementById('turbopump-rpm'),
+            thrustKn: document.getElementById('thrust-kn'),
+            loxVal: document.getElementById('prop-lox-val'),
+            loxBar: document.getElementById('prop-lox-bar'),
+            loxP: document.getElementById('prop-lox-p'),
+            loxKg: document.getElementById('prop-lox-kg'),
+            lchVal: document.getElementById('prop-lch-val'),
+            lchBar: document.getElementById('prop-lch-bar'),
+            lchP: document.getElementById('prop-lch-p'),
+            lchKg: document.getElementById('prop-lch-kg'),
+            heP: document.getElementById('prop-he-p'),
+            
+            // TVC & RCS
+            tvcDot: document.getElementById('tvc-dot'),
+            tvcTarget: document.getElementById('tvc-target'),
+            tvcP: document.getElementById('tvc-p-val'),
+            tvcY: document.getElementById('tvc-y-val'),
+            rcsStatus: document.getElementById('rcs-status'),
+            rcsNodes: {
+                pitchUp: document.getElementById('rcs-pitch-up'),
+                pitchDn: document.getElementById('rcs-pitch-dn'),
+                yawL: document.getElementById('rcs-yaw-l'),
+                yawR: document.getElementById('rcs-yaw-r'),
+                rollL: document.getElementById('rcs-roll-l'),
+                rollR: document.getElementById('rcs-roll-r')
+            },
+            
+            // HUD & Map
+            hudTrackDeg: document.getElementById('hud-track-deg'),
+            hudTiltDeg: document.getElementById('hud-tilt-deg'),
+            hudCoord: document.getElementById('hud-coord'),
+            mapRangeLz: document.getElementById('map-range-lz'),
+            
+            // Annunciator & Console
+            consoleOut: document.getElementById('console-output'),
+            consoleIn: document.getElementById('console-input'),
+            
+            // Milestones
+            ms: {
+                pre: document.getElementById('ms-pre'),
+                arm: document.getElementById('ms-arm'),
+                liftoff: document.getElementById('ms-liftoff'),
+                maxq: document.getElementById('ms-maxq'),
+                meco: document.getElementById('ms-meco'),
+                apogee: document.getElementById('ms-apogee'),
+                entry: document.getElementById('ms-entry'),
+                land: document.getElementById('ms-land')
+            },
+            
+            // Annunciators
+            caw: {
+                rf: document.getElementById('caw-rf'),
+                gnss: document.getElementById('caw-gnss'),
+                imu: document.getElementById('caw-imu'),
+                q: document.getElementById('caw-q'),
+                meco: document.getElementById('caw-meco'),
+                aero: document.getElementById('caw-aero'),
+                ign: document.getElementById('caw-ign'),
+                radar: document.getElementById('caw-radar'),
+                gear: document.getElementById('caw-gear'),
+                fts: document.getElementById('caw-fts')
+            }
+        };
+
+        // --- Web Audio Synthesizer ---
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) audioCtx = new AudioContext();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        function playBeep(freq = 900, duration = 0.06, type = 'sine', gainVal = 0.08) {
+            if (!state.audioEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                gain.gain.setValueAtTime(gainVal, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + duration);
+            } catch (e) {}
+        }
+
+        function playChime(isWarning = false) {
+            if (!state.audioEnabled) return;
+            if (isWarning) {
+                playBeep(440, 0.15, 'sawtooth', 0.12);
+                setTimeout(() => playBeep(330, 0.25, 'sawtooth', 0.14), 160);
+            } else {
+                playBeep(880, 0.08, 'sine', 0.08);
+                setTimeout(() => playBeep(1174, 0.12, 'sine', 0.08), 90);
+            }
+        }
+
+        UI.btnSound.addEventListener('click', () => {
+            state.audioEnabled = !state.audioEnabled;
+            if (state.audioEnabled) {
+                UI.btnSound.className = 'sound-btn on';
+                UI.btnSound.textContent = '🔊 AUDIO: ON';
+                playBeep(1000, 0.08);
+            } else {
+                UI.btnSound.className = 'sound-btn';
+                UI.btnSound.textContent = '🔇 AUDIO: MUTED';
+            }
+        });
+
+        // --- UTC Clock Runner ---
+        setInterval(() => {
+            const now = new Date();
+            const h = String(now.getUTCHours()).padStart(2, '0');
+            const m = String(now.getUTCMinutes()).padStart(2, '0');
+            const s = String(now.getUTCSeconds()).padStart(2, '0');
+            const ms = Math.floor(now.getUTCMilliseconds() / 100);
+            UI.utcClock.textContent = `UTC ${h}:${m}:${s}.${ms}`;
+        }, 100);
+
+        // ================================================================
+        // --- 3D LUNAR ENVIRONMENT & OPTICAL CAMERA RIG (THREE.JS) -------
+        // ================================================================
+        let threeScene, threeRenderer;
+        let cameraDescent, cameraHorizon, cameraNadir;
+        let lunarTerrainMesh, dustPoints, dustGeometry, dustMaterial;
+        let groundFlashLight;
+
+        function initThreeScene() {
+            const container = UI.threeContainer;
+            const w = container.clientWidth || 600;
+            const h = container.clientHeight || 350;
+
+            threeScene = new THREE.Scene();
+            threeScene.background = new THREE.Color(0x020306);
+            // No atmospheric fog (vacuum deep space)
+
+            // 3 Independent Optical Cameras for Multi-Viewport Rendering
+            cameraDescent = new THREE.PerspectiveCamera(52, (w * 0.6) / h, 0.5, 50000); // CAM 1 (Main Descent)
+            cameraHorizon = new THREE.PerspectiveCamera(68, (w * 0.4) / (h * 0.5), 0.5, 50000); // CAM 2 (Oblique Horizon)
+            cameraNadir = new THREE.PerspectiveCamera(32, (w * 0.4) / (h * 0.5), 0.5, 50000); // CAM 3 (Nadir TRN Zoom)
+
+            threeRenderer = new THREE.WebGLRenderer({
+                canvas: UI.threeCanvas,
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            threeRenderer.setSize(w, h);
+            threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+            // --- Deep Space Celestial Starfield ---
+            const starGeo = new THREE.BufferGeometry();
+            const starPos = [];
+            for (let i = 0; i < 3000; i++) {
+                const r = 26000;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos((Math.random() * 2) - 1);
+                starPos.push(
+                    r * Math.sin(phi) * Math.cos(theta),
+                    r * Math.sin(phi) * Math.sin(theta),
+                    r * Math.cos(phi)
+                );
+            }
+            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+            const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2.0, sizeAttenuation: false });
+            threeScene.add(new THREE.Points(starGeo, starMat));
+
+            // --- Harsh Vacuum Sunlight (Low Lunar Angle) ---
+            const sunLight = new THREE.DirectionalLight(0xfff8ee, 2.8);
+            sunLight.position.set(4200, 2400, 3200);
+            sunLight.target.position.set(0, 0, -400);
+            threeScene.add(sunLight);
+            threeScene.add(sunLight.target);
+
+            // Ambient lunar regolith bounce light (prevents pure black shadows)
+            const ambientLight = new THREE.AmbientLight(0x334155, 0.5);
+            threeScene.add(ambientLight);
+
+            // Ground touchdown blowout flash light
+            groundFlashLight = new THREE.PointLight(0xffedd5, 0, 450, 1.8);
+            groundFlashLight.position.set(0, 4, 0);
+            threeScene.add(groundFlashLight);
+
+            // Build pure lunar cratered surface & dust system (no vehicle model!)
+            buildLunarTerrain();
+            buildDustSystem();
+        }
+
+        // --- Real NASA SVS 4720 Cratered Lunar Terrain ---
+        function buildLunarTerrain() {
+            const texCanvas = document.createElement('canvas');
+            texCanvas.width = 2048;
+            texCanvas.height = 2048;
+            const ctx = texCanvas.getContext('2d');
+
+            // Default dark titanium mare regolith background
+            ctx.fillStyle = '#3c3f47';
+            ctx.fillRect(0, 0, 2048, 2048);
+
+            const lunarTexture = new THREE.CanvasTexture(texCanvas);
+            lunarTexture.wrapS = THREE.ClampToEdgeWrapping;
+            lunarTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+            function renderLandingZoneMarkings() {
+                // Tactical LZ-LUNAR-1 Target Pad marking concentric rings
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.arc(1024, 1024, 60, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.strokeStyle = 'rgba(34, 197, 94, 0.90)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(1024, 1024, 85, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Concentric range tick crosshairs
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(1024 - 110, 1024); ctx.lineTo(1024 - 70, 1024);
+                ctx.moveTo(1024 + 70, 1024); ctx.lineTo(1024 + 110, 1024);
+                ctx.moveTo(1024, 1024 - 110); ctx.lineTo(1024, 1024 - 70);
+                ctx.moveTo(1024, 1024 + 70); ctx.lineTo(1024, 1024 + 110);
+                ctx.stroke();
+            }
+
+            // Load Real NASA SVS 4720 LROC Photographic Surface Texture
+            if (window.NASA_LUNAR_TEXTURE_B64) {
+                const nasaImg = new Image();
+                nasaImg.onload = () => {
+                    ctx.drawImage(nasaImg, 0, 0, 2048, 2048);
+                    renderLandingZoneMarkings();
+                    lunarTexture.needsUpdate = true;
+                    logMsg("NASA SVS 4720 LROC photographic surface texture loaded.", "slm");
+                };
+                nasaImg.src = 'data:image/jpeg;base64,' + window.NASA_LUNAR_TEXTURE_B64;
+            } else {
+                renderLandingZoneMarkings();
+            }
+
+            // High-frequency procedural regolith normal map (repeats across terrain for ultra-crisp rocky texture)
+            const normCanvas = document.createElement('canvas');
+            normCanvas.width = 256;
+            normCanvas.height = 256;
+            const nctx = normCanvas.getContext('2d');
+            const nSize = 256;
+            const h = new Float32Array(nSize * nSize);
+            for (let ny = 0; ny < nSize; ny++) {
+                for (let nx = 0; nx < nSize; nx++) {
+                    const v1 = Math.sin(nx * 0.12) * Math.cos(ny * 0.14) * 0.4;
+                    const v2 = Math.sin(nx * 0.35 + ny * 0.28) * 0.25;
+                    const v3 = (Math.random() - 0.5) * 0.45;
+                    h[ny * nSize + nx] = v1 + v2 + v3;
+                }
+            }
+            const nImg = nctx.createImageData(nSize, nSize);
+            const nd = nImg.data;
+            const strength = 1.6; // Halved from 3.2 for gentle regolith relief
+            for (let ny = 0; ny < nSize; ny++) {
+                for (let nx = 0; nx < nSize; nx++) {
+                    const xL = (nx - 1 + nSize) % nSize;
+                    const xR = (nx + 1) % nSize;
+                    const yU = (ny - 1 + nSize) % nSize;
+                    const yD = (ny + 1) % nSize;
+                    const dx = (h[ny * nSize + xR] - h[ny * nSize + xL]) * strength;
+                    const dy = (h[yD * nSize + nx] - h[yU * nSize + nx]) * strength;
+                    let normX = -dx, normY = -dy, normZ = 1.0;
+                    const len = Math.hypot(normX, normY, normZ);
+                    normX /= len; normY /= len; normZ /= len;
+                    const idx = (ny * nSize + nx) * 4;
+                    nd[idx] = (normX * 0.5 + 0.5) * 255;
+                    nd[idx + 1] = (normY * 0.5 + 0.5) * 255;
+                    nd[idx + 2] = (normZ * 0.5 + 0.5) * 255;
+                    nd[idx + 3] = 255;
+                }
+            }
+            nctx.putImageData(nImg, 0, 0);
+
+            const regolithNormalTex = new THREE.CanvasTexture(normCanvas);
+            regolithNormalTex.wrapS = THREE.RepeatWrapping;
+            regolithNormalTex.wrapT = THREE.RepeatWrapping;
+            regolithNormalTex.repeat.set(60, 60);
+
+            // Expansive subdivided Plane Geometry with real NASA LOLA 3D terrain displacement
+            const size = 16000;
+            const segments = 200;
+            const geo = new THREE.PlaneGeometry(size, size, segments, segments);
+            geo.rotateX(-Math.PI / 2);
+
+            function sampleNasaDem(u, v) {
+                if (!window.NASA_LOLA_DEM_GRID) return 0;
+                const grid = window.NASA_LOLA_DEM_GRID;
+                const gx = Math.max(0, Math.min(63, u * 63));
+                const gy = Math.max(0, Math.min(63, v * 63));
+                const x0 = Math.floor(gx), x1 = Math.min(63, x0 + 1);
+                const y0 = Math.floor(gy), y1 = Math.min(63, y0 + 1);
+                const fx = gx - x0, fy = gy - y0;
+                const v00 = grid[y0][x0], v10 = grid[y0][x1];
+                const v01 = grid[y1][x0], v11 = grid[y1][x1];
+                return (v00 * (1 - fx) + v10 * fx) * (1 - fy) + (v01 * (1 - fx) + v11 * fx) * fy;
+            }
+
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                const x = pos.getX(i);
+                const z = pos.getZ(i);
+
+                const u = (x / size) + 0.5;
+                const v = (z / size) + 0.5;
+
+                // 1. Real NASA LOLA laser altimeter terrain elevation displacement (Mare Tranquillitatis)
+                let y = sampleNasaDem(u, v) * 0.35;
+
+                // 2. High-frequency natural regolith undulations (pebble and ripple micro-relief)
+                y += 2.2 * Math.sin(x * 0.011) * Math.sin(z * 0.013)
+                   + 1.1 * Math.cos(x * 0.022 + z * 0.019);
+
+                // 3. Level landing zone pad (LZ-1 apron at x=0, z=0)
+                const lzDist = Math.sqrt(x * x + z * z);
+                if (lzDist < 80) {
+                    const padBlend = lzDist < 35 ? 0 : (lzDist - 35) / 45;
+                    y *= padBlend;
+                }
+
+                // 4. Global lunar limb curvature (creates realistic curved lunar horizon)
+                const distSq = (x * x + z * z);
+                y -= distSq / 42000;
+
+                pos.setY(i, y);
+            }
+            geo.computeVertexNormals();
+
+            // Tuned PBR material with real NASA surface texture and regolith normal map
+            const mat = new THREE.MeshStandardMaterial({
+                map: lunarTexture,
+                bumpMap: lunarTexture,
+                bumpScale: 16,
+                normalMap: regolithNormalTex,
+                normalScale: new THREE.Vector2(1.0, 1.0),
+                roughness: 0.78,
+                metalness: 0.06,
+                color: 0x8a8d96
+            });
+
+            lunarTerrainMesh = new THREE.Mesh(geo, mat);
+            lunarTerrainMesh.receiveShadow = true;
+            threeScene.add(lunarTerrainMesh);
+        }
+
+        // --- Regolith Dust Particle System ---
+        function buildDustSystem() {
+            const count = 1500;
+            dustGeometry = new THREE.BufferGeometry();
+            const dustPositions = new Float32Array(count * 3);
+            const dustVelocities = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const r = 1 + Math.random() * 6;
+                dustPositions[i * 3] = Math.cos(angle) * r;
+                dustPositions[i * 3 + 1] = 0.1 + Math.random() * 1.5;
+                dustPositions[i * 3 + 2] = Math.sin(angle) * r;
+
+                const speed = 25 + Math.random() * 60;
+                dustVelocities[i * 3] = Math.cos(angle) * speed;
+                dustVelocities[i * 3 + 1] = 2 + Math.random() * 12;
+                dustVelocities[i * 3 + 2] = Math.sin(angle) * speed;
+            }
+
+            dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+            dustGeometry.userData = { vel: dustVelocities };
+
+            dustMaterial = new THREE.PointsMaterial({
+                color: 0xd8dbe2,
+                size: 3.2,
+                transparent: true,
+                opacity: 0.0,
+                blending: THREE.AdditiveBlending
+            });
+
+            dustPoints = new THREE.Points(dustGeometry, dustMaterial);
+            threeScene.add(dustPoints);
+        }
+
+        // --- Pure Lunar Surface Optical Camera Rig Updater ---
+        function update3DScene(t) {
+            if (!threeScene || !cameraDescent) return;
+
+            // Map altitude (camY) and downrange position (camZ) directly from trajectory
+            const progress = Math.min(1.0, t / 168.0);
+            const camZ = -1800 * (1.0 - progress);
+
+            let camY = 0.8;
+            let pitch = 90;
+
+            if (t < 25) {
+                // High Orbit Coast (Curved lunar horizon visible across top of frame)
+                const u = t / 25;
+                camY = 950 - 250 * u;
+                pitch = 18 + 7 * u;
+            } else if (t < 65) {
+                // Braking Burn Pitch-Down (Horizon tilts up and off-screen)
+                const u = (t - 25) / 40;
+                camY = 700 - 380 * u;
+                pitch = 25 + 25 * u;
+            } else if (t < 105) {
+                // Approach Phase (Craters expanding in frame)
+                const u = (t - 65) / 40;
+                camY = 320 - 220 * u;
+                pitch = 50 + 22 * u;
+            } else if (t < 140) {
+                // Terminal Hazard Avoidance
+                const u = (t - 105) / 35;
+                camY = 100 * Math.pow(1 - u, 1.6) + 16 * (1 - u);
+                pitch = 72 + 13 * u;
+            } else if (t < 160) {
+                // Final Hover Approach (Nadir vertical view)
+                const u = (t - 140) / 20;
+                camY = 16 * (1 - u) + 3.5;
+                pitch = 85 + 5 * u;
+            } else if (t < 168) {
+                // Regolith Dust Blowout Zone (Matches 02:40 in output.mp4!)
+                const u = (t - 160) / 8;
+                camY = 3.5 * (1 - u) + 0.8;
+                pitch = 90;
+            } else {
+                // Touchdown on Lunar Surface
+                camY = 0.8;
+                pitch = 90;
+            }
+
+            // Regolith Dust blowout particles (burst radially right under camera at t >= 160s)
+            if (t >= 160 && t < 172) {
+                dustMaterial.opacity = 0.9;
+                groundFlashLight.intensity = 3.0;
+
+                const posAttr = dustGeometry.attributes.position;
+                const v = dustGeometry.userData.vel;
+                const dt = 0.016;
+
+                for (let i = 0; i < posAttr.count; i++) {
+                    let px = posAttr.getX(i) + v[i * 3] * dt;
+                    let py = posAttr.getY(i) + v[i * 3 + 1] * dt;
+                    let pz = posAttr.getZ(i) + v[i * 3 + 2] * dt;
+
+                    if (Math.abs(px) > 180 || Math.abs(pz) > 180 || py > 45) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = 1 + Math.random() * 4;
+                        px = Math.cos(angle) * r;
+                        py = 0.1 + Math.random() * 1.5;
+                        pz = Math.sin(angle) * r;
+                    }
+                    posAttr.setXYZ(i, px, py, pz);
+                }
+                posAttr.needsUpdate = true;
+            } else {
+                dustMaterial.opacity = Math.max(0, dustMaterial.opacity - 0.04);
+                groundFlashLight.intensity = Math.max(0, groundFlashLight.intensity - 0.1);
+            }
+
+            // --- Position and Orient All 3 Cameras Concurrently ---
+            
+            // 1. CAM 1: DESCENT EO-01 (Primary Left 60% Viewport - Replicates output.mp4)
+            cameraDescent.position.set(0, camY, camZ);
+            const pitchRad = pitch * Math.PI / 180;
+            const lookDist = 300;
+            const lookY = camY - Math.sin(pitchRad) * lookDist;
+            const lookZ = camZ + Math.cos(pitchRad) * lookDist;
+            cameraDescent.lookAt(0, lookY, lookZ);
+
+            // 2. CAM 2: OBLIQUE HORIZON & LIMB (Top-Right Viewport - 40% Width, 50% Height)
+            // Slightly elevated vantage looking wide-angle across the horizon, craters, and starfield
+            cameraHorizon.position.set(0, camY + 6, camZ);
+            cameraHorizon.lookAt(0, camY - 45, camZ + 700);
+
+            // 3. CAM 3: NADIR TRN CRATER ZOOM (Bottom-Right Viewport - 40% Width, 50% Height)
+            // Direct downward optical mapping view with 32° telephoto lens focused on crater landmarks
+            cameraNadir.position.set(0, camY, camZ);
+            cameraNadir.lookAt(0, 0, camZ);
+        }
+
+        // --- Multi-Viewport WebGL Rendering (Scissor Clamping) ---
+        function render3DMultiView() {
+            if (!threeRenderer || !threeScene || !cameraDescent || !cameraHorizon || !cameraNadir) return;
+
+            const container = UI.threeContainer;
+            const totalW = container.clientWidth || 600;
+            const totalH = container.clientHeight || 350;
+
+            if (state.splitLayout) {
+                threeRenderer.setScissorTest(true);
+
+                const leftW = Math.round(totalW * 0.60);
+                const rightW = totalW - leftW;
+                const botH = Math.round(totalH * 0.50);
+                const topH = totalH - botH;
+
+                // 1. LEFT VIEWPORT: CAM 1 DESCENT EO-01 (MAIN DESCENT)
+                cameraDescent.aspect = leftW / totalH;
+                cameraDescent.updateProjectionMatrix();
+                threeRenderer.setViewport(0, 0, leftW, totalH);
+                threeRenderer.setScissor(0, 0, leftW, totalH);
+                threeRenderer.render(threeScene, cameraDescent);
+
+                // 2. TOP-RIGHT VIEWPORT: CAM 2 OBLIQUE HORIZON
+                cameraHorizon.aspect = rightW / topH;
+                cameraHorizon.updateProjectionMatrix();
+                threeRenderer.setViewport(leftW, botH, rightW, topH);
+                threeRenderer.setScissor(leftW, botH, rightW, topH);
+                threeRenderer.render(threeScene, cameraHorizon);
+
+                // 3. BOTTOM-RIGHT VIEWPORT: CAM 3 NADIR TRN CRATER ZOOM
+                cameraNadir.aspect = rightW / botH;
+                cameraNadir.updateProjectionMatrix();
+                threeRenderer.setViewport(leftW, 0, rightW, botH);
+                threeRenderer.setScissor(leftW, 0, rightW, botH);
+                threeRenderer.render(threeScene, cameraNadir);
+
+                threeRenderer.setScissorTest(false);
+            } else {
+                // Maximized Single Camera Mode
+                threeRenderer.setScissorTest(false);
+                cameraDescent.aspect = totalW / totalH;
+                cameraDescent.updateProjectionMatrix();
+                threeRenderer.setViewport(0, 0, totalW, totalH);
+                threeRenderer.render(threeScene, cameraDescent);
+            }
+        }
+
+        // ================================================================
+        // --- 3D ROCKET VEHICLE MODEL VIEWER (RIGHT PANEL) ---------------
+        // ================================================================
+        let rocketScene, rocketCamera, rocketRenderer, rocketControls;
+        let rocketModelRoot, rocketBaseGroup, rocketAttitudeGroup;
+        let isUserInteractingWithRocket = false;
+        let rocketAttitudeMode = 'iso'; // 'iso', 'front', 'top', 'auto'
+        let rocketAutoResumeTimer = null;
+
+        function initRocketViewer() {
+            const canvas = document.getElementById('rocket-canvas');
+            if (!canvas) return;
+
+            const w = canvas.clientWidth || 320;
+            const h = canvas.clientHeight || 195;
+
+            rocketScene = new THREE.Scene();
+            rocketScene.background = new THREE.Color(0x07090e);
+
+            rocketCamera = new THREE.PerspectiveCamera(38, w / h, 0.1, 1000);
+            rocketCamera.position.set(0, 1.5, 27);
+
+            rocketRenderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                antialias: true,
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+            rocketRenderer.setSize(w, h);
+            rocketRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+            // Studio lighting
+            const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            keyLight.position.set(20, 25, 25);
+            rocketScene.add(keyLight);
+
+            const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.8);
+            fillLight.position.set(-25, -10, 20);
+            rocketScene.add(fillLight);
+
+            const rimLight = new THREE.DirectionalLight(0xf59e0b, 0.7);
+            rimLight.position.set(0, 20, -30);
+            rocketScene.add(rimLight);
+
+            const ambLight = new THREE.AmbientLight(0x1e293b, 0.5);
+            rocketScene.add(ambLight);
+
+            // Orbit controls with auto-resume on release
+            if (THREE.OrbitControls) {
+                rocketControls = new THREE.OrbitControls(rocketCamera, canvas);
+                rocketControls.enableDamping = true;
+                rocketControls.dampingFactor = 0.08;
+                rocketControls.target.set(0, 0, 0);
+
+                rocketControls.addEventListener('start', () => {
+                    isUserInteractingWithRocket = true;
+                    if (rocketAutoResumeTimer) clearTimeout(rocketAutoResumeTimer);
+                });
+                rocketControls.addEventListener('end', () => {
+                    if (rocketAutoResumeTimer) clearTimeout(rocketAutoResumeTimer);
+                    rocketAutoResumeTimer = setTimeout(() => {
+                        isUserInteractingWithRocket = false;
+                    }, 2500);
+                });
+            }
+
+            // Reset button
+            const btnReset = document.getElementById('btn-reset-rocket');
+            if (btnReset) {
+                btnReset.addEventListener('click', () => {
+                    setRocketAttitudePreset('iso');
+                });
+            }
+
+            // Load Model automatically (Priority 1: Embedded asset, Priority 2: model.glb, Priority 3: model.3mf)
+            loadRocketModel();
+        }
+
+        function setRocketAttitudePreset(preset) {
+            rocketAttitudeMode = preset;
+            isUserInteractingWithRocket = false;
+            if (rocketAutoResumeTimer) clearTimeout(rocketAutoResumeTimer);
+            
+            document.querySelectorAll('#btn-rk-iso, #btn-rk-front, #btn-rk-top, #btn-rk-auto').forEach(b => {
+                b.classList.remove('active', 'text-slate-300');
+                b.classList.add('text-slate-400');
+            });
+            const activeBtn = document.getElementById(`btn-rk-${preset}`);
+            if (activeBtn) {
+                activeBtn.classList.add('active', 'text-slate-300');
+                activeBtn.classList.remove('text-slate-400');
+            }
+
+            if (rocketBaseGroup) {
+                if (preset === 'iso') {
+                    rocketBaseGroup.rotation.set(0.24, 0.66, 0);
+                    rocketCamera.position.set(0, 1.5, 27);
+                } else if (preset === 'front') {
+                    rocketBaseGroup.rotation.set(0, 0, 0);
+                    rocketCamera.position.set(0, 0, 27);
+                } else if (preset === 'top') {
+                    rocketBaseGroup.rotation.set(Math.PI / 2, 0, 0);
+                    rocketCamera.position.set(0, 0, 27);
+                } else if (preset === 'auto') {
+                    rocketBaseGroup.rotation.set(0.22, rocketBaseGroup.rotation.y, 0);
+                    rocketCamera.position.set(0, 1.5, 27);
+                }
+            }
+
+            if (rocketControls) {
+                rocketControls.target.set(0, 0, 0);
+                rocketControls.update();
+            }
+            logMsg(`3D rocket attitude view set to ${preset.toUpperCase()}.`, "slm");
+        }
+
+        function loadRocketModel() {
+            const loadingElem = document.getElementById('rocket-loading');
+            
+            // Priority 1: Zero-CORS direct loading (works on file:/// and http without server or clicking!)
+            if (window.ROCKET_MODEL_3MF_B64 && THREE.ThreeMFLoader) {
+                try {
+                    const binaryString = atob(window.ROCKET_MODEL_3MF_B64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const loader = new THREE.ThreeMFLoader();
+                    const object = loader.parse(bytes.buffer);
+                    setupRocketModel(object);
+                    if (loadingElem) loadingElem.style.display = 'none';
+                    logMsg("3D rocket model loaded automatically from model asset.", "slm");
+                    return;
+                } catch(e) {
+                    console.warn("Direct base64 parse failed, trying direct file fetch...", e);
+                }
+            }
+
+            // Priority 2: Look for model.glb or model.3mf in the same directory
+            if (THREE.GLTFLoader) {
+                const gltfLoader = new THREE.GLTFLoader();
+                gltfLoader.load('model.glb', (gltf) => {
+                    setupRocketModel(gltf.scene);
+                    if (loadingElem) loadingElem.style.display = 'none';
+                    logMsg("3D rocket model (model.glb) loaded automatically.", "slm");
+                }, undefined, () => {
+                    load3MFFallback();
+                });
+            } else {
+                load3MFFallback();
+            }
+
+            function load3MFFallback() {
+                if (THREE.ThreeMFLoader) {
+                    const threeMFLoader = new THREE.ThreeMFLoader();
+                    threeMFLoader.load('model.3mf', (object) => {
+                        setupRocketModel(object);
+                        if (loadingElem) loadingElem.style.display = 'none';
+                        logMsg("3D rocket model (model.3mf) loaded automatically.", "slm");
+                    }, undefined, (err3mf) => {
+                        console.error("Failed to load model file:", err3mf);
+                        if (loadingElem) {
+                            loadingElem.innerHTML = "<span class='text-amber-400'>AWAITING MODEL FILE</span>";
+                        }
+                    });
+                }
+            }
+
+            // Drag-and-drop & File Picker support
+            const fileInput = document.getElementById('rocket-file-input');
+            if (fileInput) {
+                fileInput.addEventListener('change', (e) => {
+                    if (e.target.files && e.target.files[0]) {
+                        handleUserFile(e.target.files[0]);
+                    }
+                });
+            }
+
+            const dropZone = document.getElementById('rocket-canvas') ? document.getElementById('rocket-canvas').parentElement : null;
+            if (dropZone) {
+                dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        handleUserFile(e.dataTransfer.files[0]);
+                    }
+                });
+            }
+
+            function handleUserFile(file) {
+                if (loadingElem) {
+                    loadingElem.style.display = 'flex';
+                    loadingElem.innerHTML = `<span class="animate-pulse">LOADING ${file.name}...</span>`;
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const buffer = e.target.result;
+                    if (file.name.toLowerCase().endsWith('.3mf') && THREE.ThreeMFLoader) {
+                        const loader = new THREE.ThreeMFLoader();
+                        const object = loader.parse(buffer);
+                        setupRocketModel(object);
+                        if (loadingElem) loadingElem.style.display = 'none';
+                        logMsg(`Loaded ${file.name} via FileReader.`, "slm");
+                    } else if (THREE.GLTFLoader) {
+                        const loader = new THREE.GLTFLoader();
+                        loader.parse(buffer, '', (gltf) => {
+                            setupRocketModel(gltf.scene);
+                            if (loadingElem) loadingElem.style.display = 'none';
+                            logMsg(`Loaded ${file.name} via FileReader.`, "slm");
+                        });
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            function setupRocketModel(model) {
+                rocketModelRoot = new THREE.Group();
+                rocketBaseGroup = new THREE.Group();
+                rocketAttitudeGroup = new THREE.Group();
+
+                // Calculate bounding box and center pivot
+                const box = new THREE.Box3().setFromObject(model);
+                const center = new THREE.Vector3();
+                box.getCenter(center);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+
+                // Scale to fill the 195px viewport prominently
+                const maxDim = Math.max(size.x, size.y, size.z) || 200;
+                const scale = 25.0 / maxDim;
+                model.scale.setScalar(scale);
+
+                // Center model accurately at origin
+                model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+
+                // Enhance materials with metallic aerospace finish
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        if (!child.material) {
+                            child.material = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.6, roughness: 0.4 });
+                        }
+                    }
+                });
+
+                rocketAttitudeGroup.add(model);
+                rocketBaseGroup.add(rocketAttitudeGroup);
+                rocketModelRoot.add(rocketBaseGroup);
+                rocketScene.add(rocketModelRoot);
+
+                // Initialize default isometric stance
+                setRocketAttitudePreset('iso');
+            }
+        }
+
+        function updateRocketModel(t) {
+            if (!rocketRenderer || !rocketScene) return;
+
+            // Continuous auto-rotation when AUTO preset is selected
+            if (rocketAttitudeMode === 'auto' && rocketBaseGroup) {
+                rocketBaseGroup.rotation.y += 0.015;
+            }
+
+            // Continuous active rocket attitude dynamics from telemetry (in radians)
+            if (rocketAttitudeGroup) {
+                // Upright inspection stance: dynamic attitude perturbations visibly animate vehicle
+                const deltaPitch = ((state.pitch - 15) * Math.PI) / 180;
+                const rollRad = (state.roll * Math.PI) / 180;
+                const deltaYaw = ((state.yaw - 90) * Math.PI) / 180;
+
+                // Animate model attitude with high-visibility, smooth kinematics
+                rocketAttitudeGroup.rotation.x = deltaPitch * 0.35;
+                rocketAttitudeGroup.rotation.z = -rollRad * 1.5;
+                rocketAttitudeGroup.rotation.y = deltaYaw * 1.2;
+            }
+
+            if (rocketControls) {
+                rocketControls.update();
+            }
+
+            const elP = document.getElementById('rocket-p-deg');
+            const elR = document.getElementById('rocket-r-deg');
+            const elY = document.getElementById('rocket-y-deg');
+            if (elP) elP.textContent = state.pitch.toFixed(1) + '°';
+            if (elR) elR.textContent = state.roll.toFixed(1) + '°';
+            if (elY) elY.textContent = state.yaw.toFixed(1) + '°';
+
+            rocketRenderer.render(rocketScene, rocketCamera);
+        }
+
+        // ================================================================
+        // --- MOON MAP CONFIGURATION (LEAFLET + OPENPLANETARY / NASA LROC)
+        // ================================================================
+        const map = L.map('map', {
+            center: [state.lat, state.lon],
+            zoom: 7,
+            minZoom: 2,
+            maxZoom: 9,
+            zoomControl: false,
+            attributionControl: true
+        });
+
+        // 1. OpenPlanetaryMap Labeled Moon Basemap
+        const moonLabeledLayer = L.tileLayer('https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-moon-basemap-v0-1/all/{z}/{x}/{y}.png', {
+            attribution: 'Moon Basemap: &copy; <a href="https://www.openplanetary.org/opm" target="_blank">OpenPlanetary</a> / NASA LROC',
+            maxZoom: 9,
+            minZoom: 2,
+            noWrap: false
+        });
+
+        // 2. OpenPlanetary Moon Hillshaded Albedo Relief Layer
+        const moonShadedLayer = L.tileLayer('https://s3.amazonaws.com/opmbuilder/301_moon/tiles/w/hillshaded-albedo/{z}/{x}/{y}.png', {
+            attribution: 'Lunar Relief: NASA LROC WAC / OpenPlanetary',
+            maxZoom: 8,
+            minZoom: 2,
+            noWrap: false
+        });
+
+        moonLabeledLayer.addTo(map);
+        let activeMoonLayerType = 'labeled';
+
+        document.getElementById('map-btn-layer').addEventListener('click', function() {
+            if (activeMoonLayerType === 'labeled') {
+                map.removeLayer(moonLabeledLayer);
+                moonShadedLayer.addTo(map);
+                activeMoonLayerType = 'shaded';
+                this.textContent = 'MAP: RELIEF SHADED';
+                logMsg("Tactical display switched to Lunar Hillshaded Relief.", "slm");
+            } else {
+                map.removeLayer(moonShadedLayer);
+                moonLabeledLayer.addTo(map);
+                activeMoonLayerType = 'labeled';
+                this.textContent = 'MAP: LABELED';
+                logMsg("Tactical display switched to Lunar Basemap with Nomenclature.", "slm");
+            }
+        });
+
+        // Custom High-Visibility Lunar Lander Icon
+        const rocketIcon = L.divIcon({
+            className: 'rocket-marker-icon',
+            html: `
+                <div id="rocket-marker-glyph" style="transform: rotate(90deg); transition: transform 0.1s linear;">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="#38bdf8" style="filter: drop-shadow(0 0 8px #38bdf8);">
+                        <path d="M12 2L6 8v10h2v3h2v-3h4v3h2v-3h2V8L12 2zm0 3.5L15 8H9l3-2.5z"/>
+                        <circle cx="12" cy="13" r="2" fill="#07090e"/>
+                    </svg>
+                </div>
+            `,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+
+        const marker = L.marker([state.lat, state.lon], { icon: rocketIcon }).addTo(map);
+
+        // Mare Tranquillitatis Reference Markers
+        const padIcon = L.divIcon({
+            className: 'pad-marker',
+            html: `<div style="border: 1.5px dashed #38bdf8; background: rgba(56, 189, 248, 0.25); width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px #38bdf8; display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:7px; font-weight:bold;">TB</div>`,
+            iconSize: [16, 16], iconAnchor: [8, 8]
+        });
+        L.marker([0.67408, 23.47297], { icon: padIcon }).addTo(map).bindTooltip("TRANQUILLITY BASE SITE A", { permanent: false, className: "mono text-[10px]" });
+
+        // Landing Zone LZ-LUNAR-1 Marker
+        const lzIcon = L.divIcon({
+            className: 'lz-marker',
+            html: `<div style="border: 2px solid #22c55e; background: rgba(34, 197, 94, 0.3); width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 12px #22c55e; display:flex; align-items:center; justify-content:center; color:#fff; font-size:9px; font-weight:bold;">LZ</div>`,
+            iconSize: [20, 20], iconAnchor: [10, 10]
+        });
+        L.marker([state.targetLat, state.targetLon], { icon: lzIcon }).addTo(map).bindTooltip("LZ-LUNAR-1 (MARE TRANQUILLITATIS)", { permanent: false, className: "mono text-[10px]" });
+        L.circle([state.targetLat, state.targetLon], { radius: 1200, color: '#22c55e', weight: 1.5, fillOpacity: 0.06, dashArray: '4,4' }).addTo(map);
+
+        // Historical Lunar Reference Craters
+        L.circleMarker([0.67408, 23.47297], { radius: 6, color: '#38bdf8', weight: 2, fillColor: '#06b6d4', fillOpacity: 0.7 }).addTo(map).bindTooltip("Apollo 11 Landing Site (Statio Tranquillitatis)", { className: "mono text-[10px]" });
+        L.circleMarker([0.83, 23.77], { radius: 4, color: '#94a3b8', weight: 1, fillColor: '#334155', fillOpacity: 0.5 }).addTo(map).bindTooltip("Crater Collins", { className: "mono text-[9px]" });
+        L.circleMarker([0.52, 23.82], { radius: 4, color: '#94a3b8', weight: 1, fillColor: '#334155', fillOpacity: 0.5 }).addTo(map).bindTooltip("Crater Aldrin", { className: "mono text-[9px]" });
+        L.circleMarker([0.85, 23.47], { radius: 4, color: '#94a3b8', weight: 1, fillColor: '#334155', fillOpacity: 0.5 }).addTo(map).bindTooltip("Crater Armstrong", { className: "mono text-[9px]" });
+
+        // Trajectory Polylines
+        const activePath = L.polyline([], { color: '#22c55e', weight: 2.5, opacity: 0.95 }).addTo(map);
+        const projectedPath = L.polyline([
+            [state.launchLat, state.launchLon],
+            [state.targetLat, state.targetLon]
+        ], { color: '#38bdf8', weight: 1.5, opacity: 0.5, dashArray: '5,5' }).addTo(map);
+
+        let mapFollowVehicle = true;
+
+        document.getElementById('map-btn-track').addEventListener('click', function() {
+            mapFollowVehicle = true;
+            this.classList.add('active');
+            map.panTo([state.lat, state.lon]);
+        });
+        document.getElementById('map-btn-pad').addEventListener('click', () => {
+            map.setView([0.67408, 23.47297], 8);
+        });
+        document.getElementById('map-btn-lz').addEventListener('click', () => {
+            map.setView([state.targetLat, state.targetLon], 8);
+        });
+
+        // --- High-DPI Retina Canvas Setup ---
+        const altCanvas = document.getElementById('alt-canvas');
+        const altCtx = altCanvas.getContext('2d');
+        const hudCanvas = document.getElementById('hud-horizon');
+        const hudCtx = hudCanvas.getContext('2d');
+
+        function resizeCanvases() {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            
+            // Altimeter
+            const altRect = altCanvas.parentElement.getBoundingClientRect();
+            altCanvas.width = Math.round(altRect.width * dpr);
+            altCanvas.height = Math.round(altRect.height * dpr);
+            altCanvas.style.width = altRect.width + 'px';
+            altCanvas.style.height = altRect.height + 'px';
+
+            // Three.js Container Dimensions
+            const containerRect = UI.threeContainer.getBoundingClientRect();
+            const totalW = containerRect.width;
+            const totalH = containerRect.height;
+
+            // HUD Horizon canvas (Overlay on Left 60% viewport when in split layout)
+            const leftW = (state.splitLayout && state.viewMode === '3d') ? Math.round(totalW * 0.60) : totalW;
+            hudCanvas.width = Math.round(leftW * dpr);
+            hudCanvas.height = Math.round(totalH * dpr);
+            hudCanvas.style.width = leftW + 'px';
+            hudCanvas.style.height = totalH + 'px';
+
+            // Three.js 3D WebGL Renderer
+            if (threeRenderer && UI.threeContainer) {
+                threeRenderer.setSize(totalW, totalH);
+            }
+
+            // 3D Rocket Model Viewer in Right Panel
+            const rkCanvas = document.getElementById('rocket-canvas');
+            if (rocketRenderer && rocketCamera && rkCanvas) {
+                const rw = rkCanvas.clientWidth || 320;
+                const rh = rkCanvas.clientHeight || 145;
+                rocketCamera.aspect = rw / rh;
+                rocketCamera.updateProjectionMatrix();
+                rocketRenderer.setSize(rw, rh);
+            }
+            
+            map.invalidateSize();
+            drawAltimeter();
+            drawHUD();
+        }
+        window.addEventListener('resize', resizeCanvases);
+        setTimeout(resizeCanvases, 50);
+
+        // --- View Mode Toggle: 3D Multi-Cam vs MP4 Video ---
+        UI.btnToggleView.addEventListener('click', function() {
+            if (state.viewMode === '3d') {
+                state.viewMode = 'video';
+                this.textContent = 'VIEW: MP4 VIDEO';
+                UI.threeCanvas.style.display = 'none';
+                UI.cameraVideo.style.display = 'block';
+                if (UI.splitLineV) UI.splitLineV.style.display = 'none';
+                if (UI.splitLineH) UI.splitLineH.style.display = 'none';
+                if (UI.badgeCam2) UI.badgeCam2.style.display = 'none';
+                if (UI.badgeCam3) UI.badgeCam3.style.display = 'none';
+                if (UI.reticleCam3) UI.reticleCam3.style.display = 'none';
+                if (UI.btnToggleSplit) UI.btnToggleSplit.style.display = 'none';
+                UI.mfdTitle.textContent = 'OPTICAL EO-01 CAMERA // LUNAR DESCENT VIDEO';
+                UI.mfdSubbadge.textContent = 'output.mp4';
+                resizeCanvases();
+                logMsg("Switched display to MP4 Video feed.", "slm");
+            } else {
+                state.viewMode = '3d';
+                this.textContent = 'VIEW: 3D MULTI-CAM';
+                UI.threeCanvas.style.display = 'block';
+                UI.cameraVideo.style.display = 'none';
+                if (UI.btnToggleSplit) UI.btnToggleSplit.style.display = 'inline-flex';
+                if (state.splitLayout) {
+                    if (UI.splitLineV) UI.splitLineV.style.display = 'block';
+                    if (UI.splitLineH) UI.splitLineH.style.display = 'block';
+                    if (UI.badgeCam2) UI.badgeCam2.style.display = 'block';
+                    if (UI.badgeCam3) UI.badgeCam3.style.display = 'block';
+                    if (UI.reticleCam3) UI.reticleCam3.style.display = 'flex';
+                }
+                UI.mfdTitle.textContent = '3D LUNAR MULTI-VIEWPORT // TRIPLE OPTICAL SENSOR';
+                UI.mfdSubbadge.textContent = '3-WAY SPLIT 60FPS';
+                resizeCanvases();
+                logMsg("Switched display to 3D WebGL Multi-Camera simulation.", "slm");
+            }
+        });
+
+        // --- Split Layout Toggle: 3-Way Split vs Maximize Main ---
+        UI.btnToggleSplit.addEventListener('click', function() {
+            state.splitLayout = !state.splitLayout;
+            this.textContent = state.splitLayout ? 'LAYOUT: 3-WAY SPLIT' : 'LAYOUT: MAXIMIZE MAIN';
+            this.classList.toggle('active', state.splitLayout);
+
+            const display = state.splitLayout ? 'block' : 'none';
+            if (UI.splitLineV) UI.splitLineV.style.display = display;
+            if (UI.splitLineH) UI.splitLineH.style.display = display;
+            if (UI.badgeCam2) UI.badgeCam2.style.display = display;
+            if (UI.badgeCam3) UI.badgeCam3.style.display = display;
+            if (UI.reticleCam3) UI.reticleCam3.style.display = state.splitLayout ? 'flex' : 'none';
+
+            resizeCanvases();
+            logMsg(state.splitLayout ? "Camera layout set to 3-Way Multi-Viewport Split." : "Primary descent camera maximized.", "slm");
+        });
+
+        UI.btnToggleHud.addEventListener('click', function() {
+            state.hudVisible = !state.hudVisible;
+            this.textContent = `HUD: ${state.hudVisible ? 'ON' : 'OFF'}`;
+            this.classList.toggle('active', state.hudVisible);
+            hudCanvas.style.display = state.hudVisible ? 'block' : 'none';
+        });
+
+        function seekVideo(seconds) {
+            UI.cameraVideo.currentTime = seconds;
+            state.time = seconds;
+            syncSimulationWithVideo(seconds);
+            update3DScene(seconds);
+            logMsg(`Timeline scrubbed to T+ ${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}. Telemetry & 3D synced.`, "slm");
+        }
+
+        // --- Moving Altimeter Tape Drawing ---
+        function drawAltimeter() {
+            const w = altCanvas.clientWidth || 58;
+            const h = altCanvas.clientHeight || 175;
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            altCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            altCtx.clearRect(0, 0, w, h);
+            
+            let pxPerMeter = 1.8;
+            if (state.alt > 1000) pxPerMeter = 0.05;
+            else if (state.alt > 200) pxPerMeter = 0.4;
+            
+            const centerAlt = state.alt;
+            const minAlt = centerAlt - (h / 2) / pxPerMeter;
+            const maxAlt = centerAlt + (h / 2) / pxPerMeter;
+            const tickStep = (state.alt > 1000) ? 500 : 10;
+            const startTick = Math.floor(minAlt / tickStep) * tickStep;
+            
+            altCtx.font = '10px "JetBrains Mono"';
+            altCtx.textAlign = 'right';
+            altCtx.textBaseline = 'middle';
+
+            for (let m = startTick; m <= maxAlt; m += tickStep) {
+                if (m < 0) continue;
+                const y = h / 2 - (m - centerAlt) * pxPerMeter;
+                
+                altCtx.beginPath();
+                const isMajor = (m % (tickStep * 5) === 0);
+                if (isMajor) {
+                    altCtx.moveTo(w - 14, y);
+                    altCtx.lineTo(w, y);
+                    altCtx.strokeStyle = '#e2e8f0';
+                    altCtx.lineWidth = 1.2;
+                    altCtx.fillStyle = '#94a3b8';
+                    altCtx.fillText(m >= 1000 ? (m / 1000).toFixed(1) + 'k' : m.toString(), w - 17, y);
+                } else {
+                    altCtx.moveTo(w - 7, y);
+                    altCtx.lineTo(w, y);
+                    altCtx.strokeStyle = '#334155';
+                    altCtx.lineWidth = 1;
+                }
+                altCtx.stroke();
+            }
+        }
+
+        // --- Primary Flight Display (PFD / HUD) Overlay ---
+        function drawHUD() {
+            const w = hudCanvas.clientWidth || 360;
+            const h = hudCanvas.clientHeight || 350;
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            hudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            hudCtx.clearRect(0, 0, w, h);
+
+            if (!state.hudVisible) return;
+
+            hudCtx.save();
+            hudCtx.translate(w / 2, h / 2);
+            hudCtx.rotate(-state.roll * Math.PI / 180);
+
+            // Pitch translation relative to vehicle pitch
+            const pitchPx = (state.pitch - 15) * 2.2;
+            hudCtx.translate(0, pitchPx);
+
+            // Lunar Artificial Horizon Line
+            hudCtx.beginPath();
+            hudCtx.moveTo(-w, 0);
+            hudCtx.lineTo(w, 0);
+            hudCtx.strokeStyle = '#22c55e';
+            hudCtx.lineWidth = 1.5;
+            hudCtx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+            hudCtx.shadowBlur = 4;
+            hudCtx.stroke();
+
+            // Pitch Ladder Degrees
+            hudCtx.font = '10px "JetBrains Mono"';
+            hudCtx.textAlign = 'right';
+            hudCtx.textBaseline = 'middle';
+            hudCtx.fillStyle = '#e2e8f0';
+            hudCtx.strokeStyle = '#38bdf8';
+            hudCtx.lineWidth = 1.2;
+
+            for (let deg = -90; deg <= 90; deg += 10) {
+                if (deg === 0) continue;
+                const y = -deg * 2.5;
+                
+                hudCtx.beginPath();
+                if (deg < 0) {
+                    hudCtx.setLineDash([4, 4]);
+                } else {
+                    hudCtx.setLineDash([]);
+                }
+
+                const lineW = (deg % 30 === 0) ? 32 : 18;
+                hudCtx.moveTo(-lineW, y);
+                hudCtx.lineTo(lineW, y);
+                hudCtx.stroke();
+
+                if (deg % 20 === 0) {
+                    hudCtx.fillText(Math.abs(deg).toString(), -lineW - 4, y);
+                    hudCtx.textAlign = 'left';
+                    hudCtx.fillText(Math.abs(deg).toString(), lineW + 4, y);
+                    hudCtx.textAlign = 'right';
+                }
+            }
+            hudCtx.restore();
+
+            // Bank Angle Arc at Top
+            hudCtx.save();
+            hudCtx.translate(w / 2, h / 2);
+            hudCtx.beginPath();
+            hudCtx.arc(0, 0, 95, -Math.PI * 0.75, -Math.PI * 0.25);
+            hudCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            hudCtx.lineWidth = 1;
+            hudCtx.stroke();
+
+            const bankTicks = [-45, -30, -20, -10, 0, 10, 20, 30, 45];
+            bankTicks.forEach(angle => {
+                const rad = (angle - 90) * Math.PI / 180;
+                const r1 = 92;
+                const r2 = (angle % 30 === 0) ? 100 : 96;
+                hudCtx.beginPath();
+                hudCtx.moveTo(Math.cos(rad) * r1, Math.sin(rad) * r1);
+                hudCtx.lineTo(Math.cos(rad) * r2, Math.sin(rad) * r2);
+                hudCtx.strokeStyle = (angle === 0) ? '#22c55e' : 'rgba(255,255,255,0.7)';
+                hudCtx.lineWidth = (angle === 0) ? 1.5 : 1;
+                hudCtx.stroke();
+            });
+
+            const rollRad = (state.roll - 90) * Math.PI / 180;
+            const px = Math.cos(rollRad) * 90;
+            const py = Math.sin(rollRad) * 90;
+            hudCtx.beginPath();
+            hudCtx.arc(px, py, 3, 0, Math.PI * 2);
+            hudCtx.fillStyle = '#22c55e';
+            hudCtx.fill();
+            hudCtx.restore();
+
+            // Center Bore Crosshair
+            hudCtx.beginPath();
+            hudCtx.setLineDash([]);
+            hudCtx.strokeStyle = '#ffffff';
+            hudCtx.lineWidth = 1.5;
+            hudCtx.moveTo(w / 2 - 18, h / 2);
+            hudCtx.lineTo(w / 2 - 6, h / 2);
+            hudCtx.moveTo(w / 2 + 6, h / 2);
+            hudCtx.lineTo(w / 2 + 18, h / 2);
+            hudCtx.stroke();
+            hudCtx.beginPath();
+            hudCtx.arc(w / 2, h / 2, 2, 0, Math.PI * 2);
+            hudCtx.fillStyle = '#ffffff';
+            hudCtx.fill();
+
+            // Flight Path Marker (Velocity Vector Bird)
+            const fpmY = Math.max(20, Math.min(h - 20, h / 2 - (state.vel * 1.5)));
+            const fpmX = w / 2;
+            hudCtx.beginPath();
+            hudCtx.strokeStyle = '#38bdf8';
+            hudCtx.lineWidth = 1.4;
+            hudCtx.arc(fpmX, fpmY, 5, 0, Math.PI * 2);
+            hudCtx.moveTo(fpmX - 10, fpmY); hudCtx.lineTo(fpmX - 5, fpmY);
+            hudCtx.moveTo(fpmX + 5, fpmY); hudCtx.lineTo(fpmX + 10, fpmY);
+            hudCtx.moveTo(fpmX, fpmY - 5); hudCtx.lineTo(fpmX, fpmY - 8);
+            hudCtx.stroke();
+        }
+
+        // ================================================================
+        // --- DESCENT TRAJECTORY SYNCHRONIZATION WITH OUTPUT.MP4 VIDEO ---
+        // ================================================================
+        function syncSimulationWithVideo(t) {
+            let isDust = false;
+
+            if (t < 25) {
+                const u = t / 25;
+                state.alt = 32000 - 10000 * u;
+                state.radarAlt = state.alt;
+                state.vel = -15 - 5 * u;
+                state.horizVel = 1680 - 180 * u;
+                state.pitch = 15 + 10 * u + 0.6 * Math.sin(t * 1.5);
+                state.roll = 2.0 * Math.sin(t * 0.8);
+                state.yaw = 90.0 + 1.5 * Math.sin(t * 0.5);
+                state.phase = 'LUNAR_DEORBIT_COAST';
+                state.engineActive = false;
+                state.thrustPercent = 0;
+                state.pc = 0;
+                state.turbopumpRpm = 0;
+                
+                UI.modeBadge.textContent = 'DEORBIT_COAST';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-blue-950 text-blue-400 border border-blue-600';
+                
+            } else if (t < 65) {
+                const u = (t - 25) / 40;
+                state.alt = 22000 - 10000 * (1.5 * u - 0.5 * u * u);
+                state.radarAlt = state.alt;
+                state.vel = -20 - 25 * u;
+                state.horizVel = 1500 - 900 * u;
+                state.pitch = 25 + 25 * u + 0.9 * Math.sin(t * 1.8);
+                state.roll = 4.5 * Math.sin((t - 25) * 0.6);
+                state.yaw = 90.0 + 2.8 * Math.cos((t - 25) * 0.4);
+                state.phase = 'POWERED_BRAKING_BURN';
+                state.engineActive = true;
+                state.thrustPercent = 100;
+                state.pc = 98.0 + (Math.random() * 1.5 - 0.75);
+                state.turbopumpRpm = 38200 + Math.floor(Math.random() * 300);
+
+                state.lox = 100 - (u * 22);
+                state.lch4 = 100 - (u * 20);
+
+                UI.modeBadge.textContent = 'POWERED_BRAKING_BURN';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-green-950 text-green-400 border border-green-600';
+                setAnnunciator(UI.caw.ign, 'nominal');
+
+            } else if (t < 105) {
+                const u = (t - 65) / 40;
+                state.alt = 12000 - 8800 * u;
+                state.radarAlt = state.alt;
+                state.vel = -45 + 18 * u;
+                state.horizVel = 600 - 480 * u;
+                state.pitch = 50 + 22 * u + 0.7 * Math.sin(t * 1.6);
+                state.roll = -3.5 * Math.sin((t - 65) * 0.7);
+                state.yaw = 90.0 + 2.0 * Math.sin((t - 65) * 0.5);
+                state.phase = 'TERRAIN_NAV_APPROACH';
+                state.engineActive = true;
+                state.thrustPercent = 85;
+                state.pc = 88.0 + (Math.random() * 1.5 - 0.75);
+                state.turbopumpRpm = 35400 + Math.floor(Math.random() * 250);
+
+                state.lox = 78 - (u * 24);
+                state.lch4 = 80 - (u * 22);
+
+                UI.modeBadge.textContent = 'TERRAIN_NAV_APPROACH';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-cyan-950 text-cyan-400 border border-cyan-600';
+
+            } else if (t < 140) {
+                const u = (t - 105) / 35;
+                state.alt = 3200 * Math.pow(1 - u, 1.8) + 450 * (1 - u);
+                state.radarAlt = state.alt;
+                state.vel = -27 + 19 * u;
+                state.horizVel = 120 - 105 * u;
+                state.pitch = 72 + 13 * u + 0.5 * Math.sin(t * 1.4);
+                state.roll = 2.0 * Math.sin((t - 105) * 0.8);
+                state.yaw = 90.0 + 1.2 * Math.cos((t - 105) * 0.6);
+                state.phase = 'TERMINAL_HAZARD_AVOID';
+                state.engineActive = true;
+                state.thrustPercent = 78;
+                state.pc = 82.0 + (Math.random() * 1.5 - 0.75);
+                state.turbopumpRpm = 33800 + Math.floor(Math.random() * 200);
+
+                state.lox = 54 - (u * 18);
+                state.lch4 = 58 - (u * 16);
+
+                UI.modeBadge.textContent = 'TERMINAL_HAZARD_AVOID';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-purple-950 text-purple-400 border border-purple-600';
+                setAnnunciator(UI.caw.radar, 'nominal');
+
+            } else if (t < 160) {
+                const u = (t - 140) / 20;
+                state.alt = 450 * Math.pow(1 - u, 2) + 30 * (1 - u);
+                state.radarAlt = state.alt;
+                state.vel = -8 + 6.2 * u;
+                state.horizVel = 15 * (1 - u);
+                state.pitch = 85 + 5 * u + 0.3 * Math.sin(t * 1.2);
+                state.roll = 1.0 * Math.sin((t - 140) * 1.0);
+                state.yaw = 90.0 + 0.6 * Math.sin((t - 140) * 0.8);
+                state.phase = 'FINAL_HOVER_APPROACH';
+                state.engineActive = true;
+                state.thrustPercent = 72;
+                state.pc = 76.0 + (Math.random() * 1.5 - 0.75);
+                state.turbopumpRpm = 32000 + Math.floor(Math.random() * 200);
+
+                state.lox = 36 - (u * 8);
+                state.lch4 = 42 - (u * 7);
+
+                if (state.alt < 80) {
+                    setAnnunciator(UI.caw.gear, 'nominal');
+                }
+
+                UI.modeBadge.textContent = 'FINAL_HOVER_APPROACH';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-amber-950 text-amber-400 border border-amber-500 blink-warn';
+
+            } else if (t < 168) {
+                const u = (t - 160) / 8;
+                state.alt = 30 * (1 - u);
+                state.radarAlt = Math.max(0, state.alt);
+                state.vel = -1.8 * (1 - u);
+                state.horizVel = 0;
+                state.pitch = 90.0;
+                state.roll = 0.4 * Math.sin((t - 160) * 1.5);
+                state.yaw = 90.0;
+                state.phase = 'REGOLITH_DUST_BLOWOUT';
+                state.engineActive = true;
+                state.thrustPercent = 65;
+                state.pc = 70.0;
+                state.turbopumpRpm = 30000;
+                isDust = true;
+
+                setAnnunciator(UI.caw.q, 'caution');
+                UI.modeBadge.textContent = 'REGOLITH_DUST_BLOWOUT';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-amber-900 text-amber-300 border border-amber-500 blink-crit';
+
+            } else {
+                state.alt = 0.0;
+                state.radarAlt = 0.0;
+                state.vel = 0.0;
+                state.horizVel = 0.0;
+                state.pitch = 90.0;
+                state.roll = 0.0;
+                state.yaw = 90.0;
+                state.phase = 'TOUCHDOWN_LUNAR_SURFACE';
+                state.engineActive = false;
+                state.thrustPercent = 0;
+                state.pc = 0;
+                state.turbopumpRpm = 0;
+
+                setAnnunciator(UI.caw.q, 'nominal');
+                setAnnunciator(UI.caw.gear, 'nominal');
+                UI.modeBadge.textContent = 'TOUCHDOWN_LUNAR_SURFACE';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-green-950 text-green-400 border border-green-500';
+            }
+
+            // Sync Moon Coordinates along ground track towards LZ-1
+            const progress = Math.min(1.0, t / 168.0);
+            state.lat = state.launchLat + (state.targetLat - state.launchLat) * progress;
+            state.lon = state.launchLon + (state.targetLon - state.launchLon) * progress;
+            state.downrange = 142.5 * (1.0 - progress);
+
+            // Update TVC plot & g-load
+            state.gforce = state.engineActive ? (0.165 + (state.thrustPercent / 100) * 0.45) : 0.165;
+            
+            // Smooth TVC Gimbal dynamics (continuous multi-harmonic guidance angles)
+            if (state.engineActive) {
+                const targetP = Math.sin(t * 0.75) * 1.6 + Math.sin(t * 1.6) * 0.6;
+                const targetY = Math.cos(t * 0.55) * 1.4 + Math.sin(t * 1.25) * 0.5;
+                state.tvc_target_p = targetP;
+                state.tvc_target_y = targetY;
+
+                state.tvc_pitch += (targetP - state.tvc_pitch) * 0.05;
+                state.tvc_yaw += (targetY - state.tvc_yaw) * 0.05;
+            } else {
+                state.tvc_target_p = 0;
+                state.tvc_target_y = 0;
+                state.tvc_pitch += (0 - state.tvc_pitch) * 0.08;
+                state.tvc_yaw += (0 - state.tvc_yaw) * 0.08;
+            }
+
+            // Video Time Display
+            const m = Math.floor(t / 60).toString().padStart(2, '0');
+            const s = Math.floor(t % 60).toString().padStart(2, '0');
+            UI.vidTimeTag.textContent = `T+ ${m}:${s} / 03:03`;
+            UI.missionTime.textContent = `T+ 00:${m}:${s}`;
+
+            updateMilestones(t, isDust);
+            updateUI();
+        }
+
+        // --- Console Terminal Logging Engine ---
+        let logActiveFilter = 'all';
+        let autoScrollEnabled = true;
+
+        function logMsg(msg, channel = 'slm') {
+            const now = new Date();
+            const ts = now.toISOString().substring(11, 23);
+            
+            let color = '#94a3b8';
+            let tag = '[INFO]';
+            let tagClass = 'text-slate-400';
+
+            if (channel === 'cmd') {
+                tag = '[CMD]';
+                tagClass = 'text-emerald-400 font-bold';
+                color = '#22c55e';
+            } else if (channel === 'slm') {
+                tag = '[GNC/SLM]';
+                tagClass = 'text-cyan-400';
+                color = '#e2e8f0';
+            } else if (channel === 'prop') {
+                tag = '[PROP]';
+                tagClass = 'text-amber-400';
+                color = '#f59e0b';
+            } else if (channel === 'comms') {
+                tag = '[DSN/RF]';
+                tagClass = 'text-purple-400';
+                color = '#c084fc';
+            } else if (channel === 'crit') {
+                tag = '[CRIT]';
+                tagClass = 'text-red-500 font-bold';
+                color = '#ef4444';
+                playChime(true);
+            } else if (channel === 'warn') {
+                tag = '[WARN]';
+                tagClass = 'text-amber-500 font-bold';
+                color = '#fbbf24';
+            }
+
+            const row = document.createElement('div');
+            row.className = `log-row flex items-baseline gap-2 py-0.5 ${channel}`;
+            row.setAttribute('data-channel', channel);
+            row.innerHTML = `
+                <span class="text-[#475569] text-[10px] shrink-0">[${ts}]</span>
+                <span class="${tagClass} text-[10px] shrink-0 font-bold w-18">${tag}</span>
+                <span style="color: ${color};" class="flex-1">${msg}</span>
+            `;
+
+            UI.consoleOut.appendChild(row);
+
+            if (logActiveFilter !== 'all' && channel !== logActiveFilter && channel !== 'cmd') {
+                row.style.display = 'none';
+            }
+
+            while (UI.consoleOut.childElementCount > 150) {
+                UI.consoleOut.removeChild(UI.consoleOut.firstChild);
+            }
+
+            if (autoScrollEnabled) {
+                UI.consoleOut.scrollTop = UI.consoleOut.scrollHeight;
+            }
+        }
+
+        // Terminal Log Filters
+        document.querySelectorAll('.filter-chip[data-filter]').forEach(chip => {
+            chip.addEventListener('click', function() {
+                document.querySelectorAll('.filter-chip[data-filter]').forEach(c => c.classList.remove('active'));
+                this.classList.add('active');
+                logActiveFilter = this.getAttribute('data-filter');
+                
+                document.querySelectorAll('#console-output .log-row').forEach(row => {
+                    const rowCh = row.getAttribute('data-channel');
+                    if (logActiveFilter === 'all' || rowCh === logActiveFilter || rowCh === 'cmd') {
+                        row.style.display = 'flex';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        });
+
+        document.getElementById('btn-autoscroll').addEventListener('click', function() {
+            autoScrollEnabled = !autoScrollEnabled;
+            this.textContent = `AUTOSCROLL: ${autoScrollEnabled ? 'ON' : 'OFF'}`;
+            this.classList.toggle('active', autoScrollEnabled);
+        });
+
+        document.getElementById('btn-clear-log').addEventListener('click', () => {
+            UI.consoleOut.innerHTML = '';
+            logMsg("Console buffer flushed by operator.", "cmd");
+        });
+
+        document.getElementById('btn-dump-log').addEventListener('click', () => {
+            logMsg(`Lunar telemetry dump created: ${new Date().toISOString()} // 48 frames exported.`, "comms");
+        });
+
+        // Command Prompt Input Handling
+        UI.consoleIn.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const val = this.value.trim();
+                if (val) {
+                    playBeep(1200, 0.05);
+                    logMsg(val, 'cmd');
+                    runCmd(val.toLowerCase());
+                    this.value = '';
+                }
+            }
+        });
+
+        function runCmd(cmd) {
+            const parts = cmd.split(' ');
+            const primary = parts[0];
+            const arg = parts[1];
+
+            switch(primary) {
+                case 'help':
+                    logMsg("CATALOG: arm, launch, hold, resume, abort, seek <seconds>, cam <descent/chase/surface/orbit>, view <3d/video>, throttle <0-100>, rcs_test, vent, clear, status", "slm");
+                    break;
+                case 'arm':
+                    triggerArm();
+                    break;
+                case 'launch':
+                    triggerLaunch();
+                    break;
+                case 'cam':
+                    if (['descent', 'horizon', 'nadir', 'orbit'].includes(arg)) {
+                        const btn = document.querySelector(`#cam-angle-group button[data-cam="${arg}"]`);
+                        if (btn) btn.click();
+                    } else {
+                        logMsg("Usage: cam <descent | horizon | nadir | orbit>", "warn");
+                    }
+                    break;
+                case 'view':
+                    if (arg === '3d' && state.viewMode !== '3d') UI.btnToggleView.click();
+                    else if (arg === 'video' && state.viewMode !== 'video') UI.btnToggleView.click();
+                    break;
+                case 'seek':
+                    const s = parseFloat(arg);
+                    if (!isNaN(s) && s >= 0 && s <= 183.8) {
+                        seekVideo(s);
+                    } else {
+                        logMsg("Usage: seek <0-183>", "warn");
+                    }
+                    break;
+                case 'hold':
+                    state.paused = true;
+                    UI.cameraVideo.pause();
+                    logMsg("Simulation state paused (HOLD). Video frozen.", "warn");
+                    break;
+                case 'resume':
+                    state.paused = false;
+                    UI.cameraVideo.play();
+                    logMsg("Simulation state resumed.", "slm");
+                    break;
+                case 'abort':
+                    triggerAbort();
+                    break;
+                case 'throttle':
+                    const thr = parseInt(arg, 10);
+                    if (!isNaN(thr) && thr >= 0 && thr <= 100) {
+                        state.thrustPercent = thr;
+                        logMsg(`Manual vacuum throttle commanded: ${thr}%`, "prop");
+                    } else {
+                        logMsg("Usage: throttle <0-100>", "warn");
+                    }
+                    break;
+                case 'rcs_test':
+                    logMsg("Executing automated RCS cold-gas valve cycle test.", "prop");
+                    triggerRCS(['pitchUp', 'pitchDn', 'yawL', 'yawR', 'rollL', 'rollR'], 350);
+                    break;
+                case 'vent':
+                    state.lox_p = Math.max(3.8, state.lox_p - 0.4);
+                    state.lch4_p = Math.max(3.6, state.lch4_p - 0.4);
+                    logMsg("Propellant tank vents opened. Relieving ullage pressure.", "prop");
+                    break;
+                case 'status':
+                    logMsg(`Phase: ${state.phase} | Alt: ${state.alt.toFixed(1)}m | Vel: ${state.vel.toFixed(1)}m/s | View: ${state.viewMode.toUpperCase()} | Cam: ${currentCamMode.toUpperCase()}`, "slm");
+                    break;
+                case 'clear':
+                    UI.consoleOut.innerHTML = '';
+                    break;
+                default:
+                    logMsg(`Unrecognized command: '${cmd}'. Type 'help' for command listing.`, "warn");
+            }
+        }
+
+        // --- RCS Actuation Plume Trigger ---
+        function triggerRCS(nodes, duration = 180) {
+            UI.rcsStatus.innerHTML = `STATE: <span class="text-cyan-400 font-bold">FIRING</span>`;
+            playBeep(450, 0.05, 'square', 0.03);
+            
+            nodes.forEach(n => {
+                if (UI.rcsNodes[n]) {
+                    UI.rcsNodes[n].classList.add('firing');
+                }
+            });
+
+            setTimeout(() => {
+                nodes.forEach(n => {
+                    if (UI.rcsNodes[n]) {
+                        UI.rcsNodes[n].classList.remove('firing');
+                    }
+                });
+                UI.rcsStatus.innerHTML = `STATE: <span class="text-slate-300">STANDBY</span>`;
+            }, duration);
+        }
+
+        function setAnnunciator(element, status) {
+            element.className = 'caw-tile ' + status;
+        }
+
+        // --- Milestone Sequencer synced to Video ---
+        function updateMilestones(t = state.time, isDust = false) {
+            Object.values(UI.ms).forEach(el => el.className = 'milestone-step');
+
+            if (state.phase === 'STANDBY') {
+                UI.ms.pre.className = 'milestone-step active';
+            } else if (state.phase === 'ARMED') {
+                UI.ms.pre.className = 'milestone-step passed';
+                UI.ms.arm.className = 'milestone-step active';
+            } else if (t < 25) {
+                UI.ms.pre.className = 'milestone-step passed';
+                UI.ms.arm.className = 'milestone-step passed';
+                UI.ms.liftoff.className = 'milestone-step active';
+            } else if (t < 65) {
+                UI.ms.liftoff.className = 'milestone-step passed';
+                UI.ms.maxq.className = 'milestone-step active';
+            } else if (t < 105) {
+                UI.ms.liftoff.className = 'milestone-step passed';
+                UI.ms.maxq.className = 'milestone-step passed';
+                UI.ms.meco.className = 'milestone-step active';
+            } else if (t < 140) {
+                UI.ms.meco.className = 'milestone-step passed';
+                UI.ms.apogee.className = 'milestone-step active';
+            } else if (t < 160) {
+                UI.ms.apogee.className = 'milestone-step passed';
+                UI.ms.entry.className = 'milestone-step active';
+            } else if (t < 168) {
+                UI.ms.entry.className = 'milestone-step active';
+            } else {
+                Object.values(UI.ms).forEach(el => el.className = 'milestone-step passed');
+            }
+        }
+
+        // --- Arming & Launch Control Actions ---
+        function triggerArm() {
+            if (state.phase === 'STANDBY') {
+                state.phase = 'ARMED';
+                UI.modeBadge.textContent = 'SYS_ARMED';
+                UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-amber-900 text-amber-300 border border-amber-500 blink-warn';
+                UI.btnArm.disabled = true;
+                UI.btnLaunch.disabled = false;
+                playChime(false);
+                setAnnunciator(UI.caw.fts, 'caution');
+                logMsg("Lunar descent module flight computer ARMED. 3D & Optical feeds active.", "warn");
+                updateMilestones(0);
+            }
+        }
+
+        function triggerLaunch() {
+            if (state.phase === 'ARMED') {
+                state.phase = 'LUNAR_DEORBIT_COAST';
+                state.engineActive = false;
+                
+                UI.btnLaunch.disabled = true;
+                UI.btnHold.disabled = false;
+                
+                playChime(false);
+                logMsg("Descent initiation confirmed. 3D Lunar simulation & video synchronized.", "slm");
+
+                UI.cameraVideo.currentTime = 0;
+                UI.cameraVideo.play().catch(e => {});
+
+                state.slmTimer = setInterval(() => {
+                    if (state.paused) return;
+                    const t = state.time;
+                    if (t < 25) {
+                        logMsg("3D / Optical simulation scanning lunar limb horizon. Altitude 30 km.", "slm");
+                    } else if (t < 65) {
+                        logMsg("Powered Descent Initiation (PDI). Retrograde braking burn decelerating vehicle.", "prop");
+                    } else if (t < 105) {
+                        logMsg("Terrain Relative Navigation (TRN) optical lock on Mare Tranquillitatis crater rim.", "slm");
+                    } else if (t < 140) {
+                        logMsg("Flash LIDAR altimeter acquiring surface regolith. Altitude 1,200m.", "slm");
+                    } else if (t < 160) {
+                        logMsg("Landing gear deployed and locked. Terminal approach speed 2.4 m/s.", "prop");
+                    } else if (t < 168) {
+                        logMsg("WARNING: Engine exhaust regolith blowout. Surface dust plume active.", "crit");
+                    }
+                }, 3200);
+
+                updateMilestones(0);
+            }
+        }
+
+        function triggerAbort() {
+            state.phase = 'ABORT';
+            state.engineActive = false;
+            state.thrustPercent = 0;
+            state.pc = 0;
+            UI.cameraVideo.pause();
+            
+            UI.modeBadge.textContent = 'FTS_ACTIVATED';
+            UI.modeBadge.className = 'px-2 py-0.5 text-[11px] font-bold rounded mono bg-red-950 text-red-500 border border-red-600 blink-crit';
+            
+            setAnnunciator(UI.caw.fts, 'warning');
+            UI.masterWarn.className = 'px-2 py-0.5 rounded border border-red-500 text-red-400 font-bold bg-red-950 blink-crit';
+            
+            clearInterval(state.slmTimer);
+            playChime(true);
+            logMsg("FLIGHT TERMINATION COMMANDED. Engine cutoff and emergency separation.", "crit");
+            updateUI();
+        }
+
+        UI.btnArm.addEventListener('click', triggerArm);
+        UI.btnLaunch.addEventListener('click', triggerLaunch);
+        UI.btnAbort.addEventListener('click', triggerAbort);
+        UI.btnHold.addEventListener('click', () => {
+            state.paused = !state.paused;
+            UI.btnHold.textContent = state.paused ? 'RESUME' : 'HOLD';
+            if (state.paused) {
+                UI.cameraVideo.pause();
+                logMsg("Simulation state HOLD. 3D simulation and video paused.", "warn");
+            } else {
+                UI.cameraVideo.play();
+                logMsg("Simulation state resumed.", "slm");
+            }
+        });
+
+        UI.masterWarn.addEventListener('click', () => {
+            UI.masterWarn.classList.remove('blink-crit');
+            logMsg("Master Warning acknowledged by console operator.", "slm");
+        });
+        UI.masterCaut.addEventListener('click', () => {
+            UI.masterCaut.classList.remove('blink-warn');
+            logMsg("Master Caution acknowledged by console operator.", "slm");
+        });
+
+        // Main continuous animation loop (60 FPS WebGL + Telemetry sync)
+        function frameLoop() {
+            const now = performance.now() * 0.001;
+
+            if (!state.paused && (state.phase !== 'STANDBY' && state.phase !== 'ARMED' && state.phase !== 'ABORT')) {
+                // Keep video and simulation in lockstep
+                let t = UI.cameraVideo.currentTime;
+                if (UI.cameraVideo.paused && !state.paused && state.phase !== 'TOUCHDOWN_LUNAR_SURFACE') {
+                    state.time += 0.016;
+                    t = state.time;
+                } else {
+                    state.time = t;
+                }
+                syncSimulationWithVideo(t);
+            } else if (state.phase === 'STANDBY' || state.phase === 'ARMED') {
+                // Active spacecraft attitude limit-cycling (clear realistic gyro micro-dynamics)
+                state.pitch = 15.0 + 2.4 * Math.sin(now * 1.5) + 0.8 * Math.cos(now * 2.7);
+                state.roll = 3.5 * Math.sin(now * 1.9) + 1.2 * Math.cos(now * 1.1);
+                state.yaw = 90.0 + 3.0 * Math.cos(now * 1.4) + 1.1 * Math.sin(now * 2.2);
+                updateUI();
+            }
+
+            // Always update 3D Scene and render WebGL multi-viewport when in 3D mode
+            if (state.viewMode === '3d' && threeRenderer && threeScene) {
+                update3DScene(state.time);
+                render3DMultiView();
+            }
+
+            // Always update 3D Rocket vehicle model in right panel
+            if (typeof updateRocketModel === 'function') {
+                updateRocketModel(state.time);
+            }
+
+            requestAnimationFrame(frameLoop);
+        }
+        requestAnimationFrame(frameLoop);
+
+        // --- Render UI Elements from Centralized State ---
+        function updateUI() {
+            UI.alt.textContent = state.alt >= 1000 ? Math.round(state.alt).toLocaleString() : state.alt.toFixed(1);
+            UI.radarAlt.textContent = state.radarAlt >= 1000 ? Math.round(state.radarAlt).toLocaleString() : state.radarAlt.toFixed(1);
+            UI.vel.textContent = state.vel.toFixed(1);
+            UI.mach.textContent = Math.round(state.horizVel).toLocaleString();
+            UI.spdKmh.textContent = Math.abs(Math.round(state.vel * 3.6));
+
+            if (state.vel > 0.5) {
+                UI.trend.textContent = '▲';
+                UI.trend.className = 'text-xs text-[#22c55e] ml-1';
+            } else if (state.vel < -0.5) {
+                UI.trend.textContent = '▼';
+                UI.trend.className = 'text-xs text-red-500 ml-1';
+            } else {
+                UI.trend.textContent = '■';
+                UI.trend.className = 'text-xs text-[#707e94] ml-1';
+            }
+
+            UI.imuPitch.textContent = state.pitch.toFixed(1) + '°';
+            UI.imuRoll.textContent = state.roll.toFixed(1) + '°';
+            UI.imuYaw.textContent = state.yaw.toFixed(1) + '°';
+            UI.ratePitch.textContent = (state.ratePitch || (Math.random()*0.3 - 0.15)).toFixed(1) + '°/s';
+            UI.rateRoll.textContent = (state.rateRoll || (Math.random()*0.2 - 0.1)).toFixed(1) + '°/s';
+            UI.rateYaw.textContent = (state.rateYaw || (Math.random()*0.2 - 0.1)).toFixed(1) + '°/s';
+            UI.imuG.textContent = state.gforce.toFixed(3) + ' G';
+            UI.accelNet.textContent = (state.accel >= 0 ? '+' : '') + state.accel.toFixed(1) + ' m/s²';
+
+            UI.navDownrange.textContent = state.downrange.toFixed(1) + ' km';
+            UI.navApogee.textContent = state.apogeePred.toFixed(1) + ' km';
+            UI.hudTrackDeg.textContent = Math.round((state.yaw + 360) % 360).toString().padStart(3, '0') + '°';
+            UI.hudTiltDeg.textContent = (90 - state.pitch).toFixed(1) + '°';
+            UI.hudCoord.textContent = `LAT: ${state.lat.toFixed(5)}° N | LON: ${state.lon.toFixed(5)}° E (MOON)`;
+
+            UI.engineStatus.textContent = state.engineActive ? 'FIRING' : 'STANDBY';
+            UI.engineStatus.className = state.engineActive 
+                ? 'mono text-[10px] font-bold px-2 py-0.5 rounded bg-green-950 text-green-400 border border-green-700' 
+                : 'mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400';
+
+            UI.enginePc.textContent = state.pc.toFixed(1);
+            UI.enginePcBar.style.width = Math.min(100, (state.pc / 110) * 100) + '%';
+            UI.engineThrust.textContent = state.thrustPercent;
+            UI.engineThrustBar.style.width = state.thrustPercent + '%';
+            UI.turbopumpRpm.textContent = state.turbopumpRpm.toLocaleString();
+            UI.thrustKn.textContent = (state.thrustPercent * 18.5).toFixed(1);
+
+            UI.loxVal.textContent = state.lox.toFixed(1) + '%';
+            UI.loxBar.style.width = Math.max(0, state.lox) + '%';
+            UI.loxKg.textContent = Math.round(14200 * (state.lox / 100)).toLocaleString();
+            UI.loxP.textContent = state.lox_p.toFixed(2);
+
+            UI.lchVal.textContent = state.lch4.toFixed(1) + '%';
+            UI.lchBar.style.width = Math.max(0, state.lch4) + '%';
+            UI.lchKg.textContent = Math.round(4100 * (state.lch4 / 100)).toLocaleString();
+            UI.lchP.textContent = state.lch4_p.toFixed(2);
+            UI.heP.textContent = state.copv_he_p.toFixed(1);
+
+            const tvcX = ((state.tvc_yaw + 8) / 16) * 100;
+            const tvcY = ((state.tvc_pitch + 8) / 16) * 100;
+            UI.tvcDot.style.left = `${Math.max(0, Math.min(100, tvcX))}%`;
+            UI.tvcDot.style.top = `${Math.max(0, Math.min(100, tvcY))}%`;
+            UI.tvcP.textContent = (state.tvc_pitch >= 0 ? '+' : '') + state.tvc_pitch.toFixed(1) + '°';
+            UI.tvcY.textContent = (state.tvc_yaw >= 0 ? '+' : '') + state.tvc_yaw.toFixed(1) + '°';
+
+            if (UI.tvcTarget) {
+                const tgtX = ((state.tvc_target_y + 8) / 16) * 100;
+                const tgtY = ((state.tvc_target_p + 8) / 16) * 100;
+                UI.tvcTarget.style.left = `${Math.max(0, Math.min(100, tgtX))}%`;
+                UI.tvcTarget.style.top = `${Math.max(0, Math.min(100, tgtY))}%`;
+            }
+
+            // Map Position & Polylines on Moon
+            const currentPos = new L.LatLng(state.lat, state.lon);
+            marker.setLatLng(currentPos);
+            
+            const glyph = document.getElementById('rocket-marker-glyph');
+            if (glyph) {
+                glyph.style.transform = `rotate(${state.yaw}deg)`;
+            }
+
+            const pts = activePath.getLatLngs();
+            if (pts.length === 0 || pts[pts.length - 1].distanceTo(currentPos) > 10) {
+                activePath.addLatLng(currentPos);
+                if (mapFollowVehicle) {
+                    map.panTo(currentPos, { animate: false });
+                }
+            }
+
+            UI.mapRangeLz.textContent = state.downrange.toFixed(2);
+
+            drawAltimeter();
+            drawHUD();
+        }
+
+        // --- System Bootstrapping ---
+        logMsg("NOVA-X LUNAR DESCENT MODULE (LDAM) OPERATIONAL CONSOLE INITIALIZED.", "slm");
+        logMsg("3D WebGL Moon simulation online (Three.js r128).", "slm");
+        logMsg("Optical EO-01 video telemetry stream locked on output.mp4.", "comms");
+        logMsg("Deep Space Network (DSN) link established via Goldstone 70m dish.", "comms");
+        logMsg("Terrain Relative Navigation (TRN) correlated with Apollo 11 Mare Tranquillitatis datum.", "slm");
+        logMsg("All vacuum engines and RCS cold-gas pods online. Ready for ARM & START DESCENT.", "warn");
+        
+        initThreeScene();
+        initRocketViewer();
+        updateMilestones(0);
+        updateUI();
+
+    </script>
+</body>
+</html>
